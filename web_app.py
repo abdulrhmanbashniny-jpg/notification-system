@@ -407,6 +407,186 @@ def add_sample_data_route():
         </html>
         '''
 
+@app.route('/admin/register-admin', methods=['GET', 'POST'])
+def register_admin():
+    """صفحة تسجيل المسؤول الأول"""
+    if request.method == 'POST':
+        phone = request.form.get('phone')
+        name = request.form.get('name')
+        user_id = request.form.get('user_id', '999999')  # ID افتراضي
+        
+        try:
+            user_id = int(user_id)
+            success = db.add_user(user_id, phone, name, 1)  # 1 = مسؤول
+            
+            if success:
+                return '''
+                <html dir="rtl">
+                <head><meta charset="UTF-8"><title>تم بنجاح!</title>
+                <style>
+                    body {
+                        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        height: 100vh;
+                        margin: 0;
+                    }
+                    .success-box {
+                        background: white;
+                        padding: 40px;
+                        border-radius: 15px;
+                        text-align: center;
+                        box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+                    }
+                    h1 { color: #28a745; margin-bottom: 20px; }
+                    .btn {
+                        display: inline-block;
+                        background: #667eea;
+                        color: white;
+                        padding: 12px 30px;
+                        text-decoration: none;
+                        border-radius: 5px;
+                        margin-top: 20px;
+                    }
+                </style>
+                </head>
+                <body>
+                    <div class="success-box">
+                        <h1>✅ تم التسجيل بنجاح!</h1>
+                        <p style="font-size: 18px;">مرحباً ''' + name + '''</p>
+                        <p>رقم الجوال: ''' + phone + '''</p>
+                        <p><strong>أنت الآن مسؤول النظام! 👑</strong></p>
+                        <a href="/" class="btn">الذهاب للرئيسية</a>
+                        <br><br>
+                        <p style="color: #666; font-size: 14px;">الآن يمكنك استخدام البوت على تليجرام برقمك هذا</p>
+                    </div>
+                </body>
+                </html>
+                '''
+            else:
+                return '<h1>❌ فشل التسجيل - ربما الرقم مسجل مسبقاً</h1><a href="/admin/register-admin">حاول مرة أخرى</a>'
+        except Exception as e:
+            return f'<h1>❌ خطأ: {str(e)}</h1><a href="/admin/register-admin">حاول مرة أخرى</a>'
+    
+    # صفحة النموذج
+    return '''
+    <html dir="rtl">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>تسجيل المسؤول</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                min-height: 100vh;
+                padding: 20px;
+            }
+            .container {
+                background: white;
+                padding: 40px;
+                border-radius: 15px;
+                box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+                max-width: 500px;
+                width: 100%;
+            }
+            h1 {
+                color: #667eea;
+                margin-bottom: 10px;
+                text-align: center;
+            }
+            p {
+                color: #666;
+                margin-bottom: 30px;
+                text-align: center;
+            }
+            .form-group {
+                margin-bottom: 20px;
+            }
+            label {
+                display: block;
+                margin-bottom: 8px;
+                color: #333;
+                font-weight: bold;
+            }
+            input {
+                width: 100%;
+                padding: 12px;
+                border: 2px solid #ddd;
+                border-radius: 5px;
+                font-size: 16px;
+                transition: border-color 0.3s;
+            }
+            input:focus {
+                outline: none;
+                border-color: #667eea;
+            }
+            button {
+                width: 100%;
+                padding: 15px;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                border: none;
+                border-radius: 5px;
+                font-size: 18px;
+                font-weight: bold;
+                cursor: pointer;
+                transition: transform 0.2s;
+            }
+            button:hover {
+                transform: translateY(-2px);
+            }
+            .info {
+                background: #e3f2fd;
+                padding: 15px;
+                border-radius: 5px;
+                margin-top: 20px;
+                font-size: 14px;
+                color: #1976d2;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>👑 تسجيل مسؤول النظام</h1>
+            <p>سجل بياناتك لتصبح مسؤول النظام</p>
+            
+            <form method="POST">
+                <div class="form-group">
+                    <label>رقم الجوال 📱</label>
+                    <input type="text" name="phone" placeholder="مثال: +966599222345" value="+966599222345" required>
+                </div>
+                
+                <div class="form-group">
+                    <label>الاسم الكامل 👤</label>
+                    <input type="text" name="name" placeholder="أدخل اسمك الكامل" required>
+                </div>
+                
+                <div class="form-group">
+                    <label>معرف تليجرام (Telegram ID) 🆔</label>
+                    <input type="number" name="user_id" placeholder="اتركه فارغاً إذا لم تعرفه" value="999999">
+                    <small style="color: #666; font-size: 12px; display: block; margin-top: 5px;">
+                        سيتم تحديثه تلقائياً عند استخدام البوت
+                    </small>
+                </div>
+                
+                <button type="submit">✅ تسجيل كمسؤول</button>
+                
+                <div class="info">
+                    💡 <strong>ملاحظة:</strong> بعد التسجيل، استخدم نفس رقم الجوال هذا عند التسجيل في البوت على تليجرام
+                </div>
+            </form>
+        </div>
+    </body>
+    </html>
+    '''
+
 
 if __name__ == '__main__':
     run_web_app()
