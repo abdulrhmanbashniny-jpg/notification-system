@@ -197,3 +197,16 @@ async def handle_transaction_type_selection(update: Update, context: ContextType
         )
 
 # ========== (يتبع في التعليق التالي) ==========
+def main():
+    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.CONTACT, handle_contact))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
+    application.add_handler(CallbackQueryHandler(button_handler))
+    
+    print("✅ البوت يعمل الآن...")
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+if __name__ == '__main__':
+    main()
