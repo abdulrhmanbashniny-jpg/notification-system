@@ -1,88 +1,180 @@
-from database_supabase import Database
+"""
+🎯 Main Entry Point - نقطة التشغيل الرئيسية
+تشغيل البوت + الموقع + Keep-Alive في نفس الوقت
+"""
+import os
 import threading
 import time
-import sys
-from bot import main as run_bot
-from web_app import run_web_app
-from notifications import NotificationSystem
 import logging
+from datetime import datetime
+import requests
 
+# إعداد السجلات
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
+logger = logging.getLogger(__name__)
 
-def keep_alive_service():
-    """خدمة Keep-Alive لمنع Sleep Mode"""
-    import requests
-    url = "https://notification-system-cm5l.onrender.com"
+# ==================== Keep-Alive ====================
+
+class KeepAlive:
+    """نظام Keep-Alive لمنع النوم على Render"""
     
-    while True:
-        try:
-            response = requests.get(url, timeout=10)
-            print(f"✅ Keep-Alive: {response.status_code}")
-        except Exception as e:
-            print(f"⚠️ Keep-Alive error: {e}")
-        time.sleep(600)  # كل 10 دقائق
+    def __init__(self, url: str, interval: int = 300):
+        """
+        Args:
+            url: رابط الموقع
+            interval: الفترة بالثواني (افتراضي 5 دقائق)
+        """
+        self.url = url
+        self.interval = interval
+        self.is_running = False
+        self.thread = None
+        
+    def start(self):
+        """بدء Keep-Alive"""
+        if self.is_running:
+            return
+        
+        self.is_running = True
+        self.thread = threading.Thread(target=self._keep_alive_loop, daemon=True)
+        self.thread.start()
+        logger.info(f"✅ Keep-Alive بدأ: {self.url} كل {self.interval} ثانية")
+    
+    def stop(self):
+        """إيقاف Keep-Alive"""
+        self.is_running = False
+        if self.thread:
+            self.thread.join(timeout=5)
+        logger.info("⏹️ Keep-Alive توقف")
+    
+    def _keep_alive_loop(self):
+        """حلقة Keep-Alive"""
+        # انتظار 30 ثانية قبل البدء
+        time.sleep(30)
+        
+        while self.is_running:
+            try:
+                response = requests.get(f"{self.url}/health", timeout=10)
+                
+                if response.status_code == 200:
+                    logger.info(f"💓 Keep-Alive نجح: {response.json()}")
+                else:
+                    logger.warning(f"⚠️ Keep-Alive غير طبيعي: {response.status_code}")
+                    
+            except Exception as e:
+                logger.error(f"❌ Keep-Alive فشل: {e}")
+            
+            # الانتظار للفترة التالية
+            time.sleep(self.interval)
+
+# ==================== تشغيل البوت ====================
+
+def run_bot_thread():
+    """تشغيل البوت في Thread منفصل"""
+    try:
+        from bot import run_bot
+        logger.info("🤖 بدء تشغيل البوت...")
+        run_bot()
+    except Exception as e:
+        logger.error(f"❌ فشل تشغيل البوت: {e}")
+        raise
+
+# ==================== تشغيل الموقع ====================
+
+def run_web_thread():
+    """تشغيل الموقع في Thread منفصل"""
+    try:
+        from web_app import run_web
+        logger.info("🌐 بدء تشغيل الموقع...")
+        run_web()
+    except Exception as e:
+        logger.error(f"❌ فشل تشغيل الموقع: {e}")
+        raise
+
+# ==================== تشغيل التنبيهات ====================
+
+def run_notifications_thread():
+    """تشغيل نظام التنبيهات في Thread منفصل"""
+    try:
+        from notifications import NotificationScheduler
+        
+        scheduler = NotificationScheduler()
+        logger.info("🔔 بدء تشغيل نظام التنبيهات...")
+        scheduler.start()
+        
+        # إبقاء الـ thread حي
+        while True:
+            time.sleep(60)
+            
+    except Exception as e:
+        logger.error(f"❌ فشل تشغيل التنبيهات: {e}")
+        raise
+
+# ==================== التشغيل الرئيسي ====================
 
 def main():
-    """
-    🚀 نظام إدارة المعاملات والتنبيهات - الإصدار النهائي
-    """
-    print("="*70)
-    print("🎯 نظام إدارة المعاملات والتنبيهات".center(70))
-    print("="*70)
-    print()
+    """التشغيل الرئيسي للنظام"""
     
+    logger.info("="*60)
+    logger.info("🚀 نظام إدارة المعاملات - بدء التشغيل")
+    logger.info("="*60)
+    
+    # التحقق من المتغيرات
+    required_vars = ['BOT_TOKEN', 'DATABASE_URL']
+    missing_vars = [var for var in required_vars if not os.environ.get(var)]
+    
+    if missing_vars:
+        logger.error(f"❌ متغيرات مفقودة: {', '.join(missing_vars)}")
+        return
+    
+    logger.info("✅ جميع المتغيرات موجودة")
+    
+    # تحديد رابط الموقع
+    app_url = os.environ.get('RENDER_EXTERNAL_URL')
+    if not app_url:
+        # محاولة بناء الرابط من APP_NAME
+        app_name = os.environ.get('APP_NAME', 'transactions-system')
+        app_url = f"https://{app_name}.onrender.com"
+    
+    logger.info(f"🌐 رابط الموقع: {app_url}")
+    
+    # بدء Keep-Alive
+    keep_alive = KeepAlive(app_url, interval=300)  # كل 5 دقائق
+    keep_alive.start()
+    
+    # إنشاء Threads
+    threads = []
+    
+    # 1. البوت
+    bot_thread = threading.Thread(target=run_bot_thread, daemon=True, name="BotThread")
+    bot_thread.start()
+    threads.append(bot_thread)
+    logger.info("✅ البوت يعمل في thread منفصل")
+    
+    # 2. التنبيهات
+    notifications_thread = threading.Thread(target=run_notifications_thread, daemon=True, name="NotificationsThread")
+    notifications_thread.start()
+    threads.append(notifications_thread)
+    logger.info("✅ التنبيهات تعمل في thread منفصل")
+    
+    # 3. الموقع (في الـ main thread)
+    logger.info("✅ الموقع سيعمل في main thread")
+    
+    logger.info("="*60)
+    logger.info("🎉 جميع الأنظمة تعمل بنجاح!")
+    logger.info("="*60)
+    
+    # تشغيل الموقع (هذا يحافظ على البرنامج مستيقظاً)
     try:
-        # 0. بدء Keep-Alive
-        print("🔄 [0/4] تفعيل خدمة Keep-Alive...")
-        keep_alive_thread = threading.Thread(target=keep_alive_service, daemon=True)
-        keep_alive_thread.start()
-        print("   ✅ Keep-Alive نشط (Ping كل 10 دقائق)")
-        time.sleep(1)
-        
-        # 1. بدء نظام التنبيهات التلقائي
-        print("⏰ [1/4] تشغيل نظام التنبيهات التلقائية...")
-        notification_system = NotificationSystem()
-        notification_system.start()
-        print("   ✅ نظام التنبيهات يعمل الآن (فحص كل ساعة)")
-        time.sleep(1)
-        
-        # 2. تشغيل الموقع في خيط منفصل
-        print("🌐 [2/4] تشغيل الموقع الإلكتروني...")
-        web_thread = threading.Thread(target=run_web_app, daemon=True)
-        web_thread.start()
-        print("   ✅ الموقع يعمل الآن على المنفذ 5000")
-        time.sleep(2)
-        
-        print()
-        print("="*70)
-        print("✅ جميع الأنظمة تعمل بنجاح!".center(70))
-        print("="*70)
-        print()
-        print("📊 حالة الأنظمة:")
-        print("   🌐 الموقع الإلكتروني: نشط")
-        print("   ⏰ نظام التنبيهات: نشط (فحص كل ساعة)")
-        print("   🔄 Keep-Alive: نشط (منع Sleep Mode)")
-        print("   📱 بوت تليجرام: جاري التشغيل...")
-        print()
-        print("="*70)
-        print()
-        
-        # 3. تشغيل البوت في الخيط الرئيسي
-        print("🤖 [3/4] بدء تشغيل بوت تليجرام...")
-        print()
-        run_bot()
-        
+        run_web_thread()
     except KeyboardInterrupt:
-        print("\n\n⚠️  جاري إيقاف النظام...")
-        notification_system.stop()
-        print("✅ تم إيقاف النظام بنجاح")
-        sys.exit(0)
-    except Exception as e:
-        print(f"\n❌ خطأ في تشغيل النظام: {str(e)}")
-        sys.exit(1)
+        logger.info("\n⏹️ إيقاف النظام...")
+        keep_alive.stop()
+        logger.info("👋 تم إيقاف النظام بنجاح")
+
+# ==================== نقطة الدخول ====================
 
 if __name__ == '__main__':
     main()
