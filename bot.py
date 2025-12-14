@@ -1,5 +1,210 @@
+import logging
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+from database import Database
+from ai_assistant import AIAssistant
+from config import TELEGRAM_BOT_TOKEN, MAX_NOTIFICATIONS_PER_ITEM
+
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+db = Database()
+ai = AIAssistant()
+
+user_sessions = {}
+
+WAITING_FOR_PHONE = 1
+WAITING_FOR_NAME = 2
+AI_CHAT_MODE = 3
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالج أمر /start"""
+    user = update.effective_user
+    user_id = user.id
+    
+    db_user = db.get_user(user_id)
+    
+    if not db_user:
+        keyboard = [[KeyboardButton("مشاركة رقم الجوال 📱", request_contact=True)]]
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+        
+        await update.message.reply_text(
+            "🎯 *مرحباً بك في نظام إدارة المعاملات والتنبيهات!*\n\n"
+            "📋 هذا النظام يساعدك على:\n"
+            "• إدارة عقود العمل وانتهائها\n"
+            "• تتبع إجازات الموظفين\n"
+            "• تذكيرك بتجديد استمارات السيارات\n"
+            "• متابعة التراخيص والجلسات القضائية\n"
+            "• إرسال تنبيهات تلقائية قبل انتهاء المواعيد\n\n"
+            "✨ للبدء، يرجى مشاركة رقم جوالك:",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+        user_sessions[user_id] = {'state': WAITING_FOR_PHONE}
+    else:
+        await show_main_menu(update, context, db_user)
+
+async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالج استلام رقم الجوال"""
+    contact = update.message.contact
+    user_id = contact.user_id
+    phone_number = contact.phone_number
+    
+    # تنسيق رقم الجوال
+    if not phone_number.startswith('+'):
+        if phone_number.startswith('00'):
+            phone_number = '+' + phone_number[2:]
+        elif phone_number.startswith('0'):
+            phone_number = '+966' + phone_number[1:]
+    
+    # التحقق من وجود المستخدم بالرقم
+    existing_user = None
+    all_users = db.get_all_users()
+    for u in all_users:
+        if u['phone_number'] == phone_number:
+            existing_user = u
+            break
+    
+    if existing_user:
+        # تحديث user_id في قاعدة البيانات
+        db.cursor.execute('''
+            UPDATE users SET user_id = ? WHERE phone_number = ?
+        ''', (user_id, phone_number))
+        db.conn.commit()
+        
+        await update.message.reply_text(
+            f"✅ *مرحباً بعودتك {existing_user['full_name']}!*\n\n"
+            f"تم تحديث حسابك بنجاح.\n"
+            f"{'👑 أنت مسؤول النظام' if existing_user['is_admin'] else '👤 حسابك: مستخدم عادي'}",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='Markdown'
+        )
+        
+        existing_user['user_id'] = user_id
+        await show_main_menu(update, context, existing_user)
+    else:
+        user_sessions[user_id] = {
+            'state': WAITING_FOR_NAME,
+            'phone_number': phone_number
+        }
+        
+        await update.message.reply_text(
+            "شكراً! 👍\n\nالآن أدخل اسمك الكامل:",
+            reply_markup=ReplyKeyboardRemove()
+        )
+
+async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالج الرسائل النصية"""
+    user_id = update.effective_user.id
+    text = update.message.text
+    
+    if user_id not in user_sessions:
+        user_sessions[user_id] = {'state': None}
+    
+    session = user_sessions[user_id]
+    state = session.get('state')
+    
+    if state == WAITING_FOR_NAME:
+        full_name = text.strip()
+        phone_number = session['phone_number']
+        
+        all_users = db.get_all_users()
+        is_admin = 1 if len(all_users) == 0 else 0
+        
+        success = db.add_user(user_id, phone_number, full_name, is_admin)
+        
+        if success:
+            db_user = db.get_user(user_id)
+            await update.message.reply_text(
+                f"✅ *تم التسجيل بنجاح!*\n\n"
+                f"👤 الاسم: *{full_name}*\n"
+                f"📱 الجوال: `{phone_number}`\n"
+                f"{'👑 أنت مسؤول النظام الأول!' if is_admin else '✨ تم تسجيلك كمستخدم'}\n\n"
+                f"يمكنك الآن استخدام جميع ميزات النظام! 🎉",
+                parse_mode='Markdown'
+            )
+            user_sessions[user_id]['state'] = None
+            await show_main_menu(update, context, db_user)
+        else:
+            await update.message.reply_text(
+                "❌ حدث خطأ في التسجيل.\n\n"
+                "حاول مرة أخرى أو تواصل مع الدعم الفني."
+            )
+    
+    elif state == AI_CHAT_MODE:
+        if text.lower() in ['رجوع', 'quit', 'exit', 'خروج']:
+            user_sessions[user_id]['state'] = None
+            db_user = db.get_user(user_id)
+            await show_main_menu(update, context, db_user)
+        else:
+            thinking_msg = await update.message.reply_text(
+                "🤖 *جاري التفكير والبحث...*\n"
+                "⏳ قد يستغرق هذا 5-10 ثواني",
+                parse_mode='Markdown'
+            )
+            
+            try:
+                response = ai.query(text, user_id)
+                await thinking_msg.delete()
+                await update.message.reply_text(response, parse_mode='Markdown')
+            except Exception as e:
+                await thinking_msg.delete()
+                await update.message.reply_text(
+                    "❌ عذراً، حدث خطأ في المساعد الذكي.\n"
+                    "حاول مرة أخرى أو اختر من القائمة الرئيسية."
+                )
+    
+    else:
+        db_user = db.get_user(user_id)
+        if db_user:
+            await show_main_menu(update, context, db_user)
+        else:
+            await start(update, context)
+
+async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
+    """عرض القائمة الرئيسية"""
+    keyboard = [
+        [InlineKeyboardButton("📋 معاملاتي", callback_data="my_transactions")],
+        [InlineKeyboardButton("🤖 المساعد الذكي", callback_data="ai_assistant")],
+        [InlineKeyboardButton("📊 الإحصائيات", callback_data="statistics")],
+    ]
+    
+    if user['is_admin']:
+        keyboard.append([InlineKeyboardButton("⚙️ لوحة الإدارة", callback_data="admin_panel")])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    message_text = (
+        f"🎯 *القائمة الرئيسية*\n\n"
+        f"مرحباً *{user['full_name']}*! 👋\n\n"
+        f"اختر من القائمة أدناه:"
+    )
+    
+    if update.callback_query:
+        try:
+            await update.callback_query.message.edit_text(
+                message_text, 
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+        except:
+            await update.callback_query.message.reply_text(
+                message_text, 
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+    else:
+        await update.message.reply_text(
+            message_text, 
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالج الأزرار - نسخة محسنة"""
+    """معالج الأزرار"""
     query = update.callback_query
     await query.answer()
     
@@ -9,9 +214,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not db_user:
         await query.message.reply_text("⚠️ يرجى التسجيل أولاً بإرسال /start")
         return
-    
-    # ✅ إضافة رسالة فورية للمستخدم
-    loading_msg = None
     
     if query.data == "main_menu":
         await show_main_menu(update, context, db_user)
@@ -30,9 +232,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     
     elif query.data == "my_transactions":
-        # ✅ رسالة تحميل فورية
         try:
-            await query.message.edit_text("⏳ جاري تحميل المعاملات...")
+            await query.message.edit_text("⏳ *جاري تحميل المعاملات...*", parse_mode='Markdown')
         except:
             pass
         
@@ -63,9 +264,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
     
     elif query.data == "statistics":
-        # ✅ رسالة تحميل فورية
         try:
-            await query.message.edit_text("⏳ جاري حساب الإحصائيات...")
+            await query.message.edit_text("⏳ *جاري حساب الإحصائيات...*", parse_mode='Markdown')
         except:
             pass
         
@@ -73,7 +273,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         users = db.get_all_users()
         types = db.get_transaction_types()
         
-        # إحصائيات حسب النوع
         type_stats = {}
         for t in transactions:
             type_id = t['transaction_type_id']
@@ -97,9 +296,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif query.data == "admin_panel":
         if db_user['is_admin']:
-            # ✅ رسالة تحميل فورية
             try:
-                await query.message.edit_text("⏳ جاري تحميل لوحة الإدارة...")
+                await query.message.edit_text("⏳ *جاري تحميل لوحة الإدارة...*", parse_mode='Markdown')
             except:
                 pass
             
@@ -121,3 +319,26 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "⚠️ ليس لديك صلاحيات المسؤول.\n\n"
                 "تواصل مع مسؤول النظام للحصول على الصلاحيات."
             )
+
+def main():
+    """تشغيل البوت"""
+    try:
+        print("   🔌 الاتصال بخوادم تليجرام...")
+        application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+        
+        print("   📡 تسجيل معالجات الأوامر...")
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(MessageHandler(filters.CONTACT, handle_contact))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
+        application.add_handler(CallbackQueryHandler(button_handler))
+        
+        print("   ✅ البوت جاهز ويعمل الآن!")
+        print()
+        application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+        
+    except Exception as e:
+        print(f"   ❌ خطأ في تشغيل البوت: {str(e)}")
+        raise
+
+if __name__ == '__main__':
+    main()
