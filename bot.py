@@ -1,9 +1,29 @@
-from database_supabase import Database
-import logging
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, ContextTypes, filters
-from datetime import datetime, timedelta
+"""
+🤖 Telegram Bot - النسخة الاحترافية التفاعلية
+نظام إضافة متدرج مع قاعدة بيانات مؤقتة وملخص قبل الحفظ
+"""
 import os
+import logging
+from datetime import datetime, timedelta
+from telegram import (
+    Update, 
+    InlineKeyboardButton, 
+    InlineKeyboardMarkup,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove
+)
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    ConversationHandler,
+    ContextTypes,
+    filters
+)
+from database_supabase import Database
+from ai_agent import AIAgent
+import json
 
 # إعداد السجلات
 logging.basicConfig(
@@ -12,914 +32,1031 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# حالات المحادثة
-(MAIN_MENU, TRANSACTION_TYPE, TRANSACTION_TITLE, TRANSACTION_DATE, 
- TRANSACTION_DETAILS, NOTIFICATION_DAYS, NOTIFICATION_RECIPIENTS,
- ADMIN_MENU, ADD_USER_ID, ADD_USER_PHONE, ADD_USER_NAME) = range(11)
+# ==================== الحالات (States) ====================
+(SELECT_MAIN_TYPE, SELECT_SUBTYPE, ENTER_TITLE, ENTER_END_DATE,
+ SELECT_RESPONSIBLE, SELECT_RECIPIENTS, ENTER_DESCRIPTION, 
+ CONFIRM_TRANSACTION) = range(8)
 
-# قاعدة البيانات
-db = Database()
+# ==================== قاعدة البيانات المؤقتة ====================
+user_temp_data = {}
 
-# توكن البوت (ضعه في متغير بيئة أو هنا مؤقتاً)
-BOT_TOKEN = os.environ.get('BOT_TOKEN', 'YOUR_BOT_TOKEN_HERE')
+# ==================== Helper Functions ====================
 
-# ==================== دوال المساعدة ====================
+def get_user_temp_data(user_id: int) -> dict:
+    """الحصول على البيانات المؤقتة للمستخدم"""
+    if user_id not in user_temp_data:
+        user_temp_data[user_id] = {
+            'stage': None,
+            'data': {},
+            'selected_recipients': []
+        }
+    return user_temp_data[user_id]
 
-def is_admin(user_id):
-    """التحقق من صلاحيات المسؤول"""
-    user = db.get_user(user_id)
-    return user and user.get('is_admin', 0) == 1
+def clear_user_temp_data(user_id: int):
+    """حذف البيانات المؤقتة"""
+    if user_id in user_temp_data:
+        del user_temp_data[user_id]
 
-def get_main_keyboard(user_id):
-    """لوحة المفاتيح الرئيسية"""
-    keyboard = [
-        [KeyboardButton("➕ إضافة معاملة"), KeyboardButton("📋 معاملاتي")],
-        [KeyboardButton("🔍 البحث"), KeyboardButton("📊 الإحصائيات")],
-    ]
-    
-    if is_admin(user_id):
-        keyboard.append([KeyboardButton("👨‍💼 لوحة المسؤول")])
-    
-    keyboard.append([KeyboardButton("ℹ️ المساعدة")])
-    
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
-def get_admin_keyboard():
-    """لوحة مفاتيح المسؤول"""
-    keyboard = [
-        [KeyboardButton("👥 إدارة المستخدمين"), KeyboardButton("📋 جميع المعاملات")],
-        [KeyboardButton("📊 إحصائيات عامة"), KeyboardButton("🔔 التنبيهات")],
-        [KeyboardButton("🔙 العودة للقائمة الرئيسية")]
-    ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
-def get_transaction_types_keyboard():
-    """لوحة اختيار نوع المعاملة"""
-    keyboard = [
-        [InlineKeyboardButton("📝 عقد عمل", callback_data="type_1")],
-        [InlineKeyboardButton("🏖️ إجازة موظف", callback_data="type_2")],
-        [InlineKeyboardButton("🚗 استمارة سيارة", callback_data="type_3")],
-        [InlineKeyboardButton("📄 ترخيص", callback_data="type_4")],
-        [InlineKeyboardButton("⚖️ جلسة قضائية", callback_data="type_5")],
-        [InlineKeyboardButton("❌ إلغاء", callback_data="cancel")]
-    ]
-    return InlineKeyboardMarkup(keyboard)
-
-def format_transaction_message(trans):
-    """تنسيق رسالة المعاملة"""
-    type_icons = {
-        1: "📝", 2: "🏖️", 3: "🚗", 4: "📄", 5: "⚖️"
-    }
-    
-    type_names = {
-        1: "عقد عمل", 2: "إجازة موظف", 3: "استمارة سيارة",
-        4: "ترخيص", 5: "جلسة قضائية"
-    }
-    
-    icon = type_icons.get(trans['transaction_type_id'], "📄")
-    type_name = type_names.get(trans['transaction_type_id'], "معاملة")
-    
-    # حساب الأيام المتبقية
+def format_date(date_str: str) -> str:
+    """تنسيق التاريخ"""
     try:
-        end_date = datetime.strptime(trans['end_date'], '%Y-%m-%d').date()
-        today = datetime.now().date()
-        days_left = (end_date - today).days
-        
-        if days_left < 0:
-            days_text = f"⚠️ منتهية منذ {abs(days_left)} يوم"
-        elif days_left == 0:
-            days_text = "🔥 ينتهي اليوم!"
-        elif days_left == 1:
-            days_text = "⚠️ ينتهي غداً"
-        elif days_left <= 3:
-            days_text = f"🔴 باقي {days_left} أيام"
-        elif days_left <= 7:
-            days_text = f"🟡 باقي {days_left} أيام"
-        else:
-            days_text = f"🟢 باقي {days_left} يوم"
+        date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+        return date_obj.strftime('%d/%m/%Y')
     except:
-        days_text = "غير محدد"
-    
-    message = f"""
-{icon} *{type_name}*
+        return date_str
 
-📌 *العنوان:* {trans['title']}
-📅 *تاريخ الانتهاء:* {trans['end_date']}
-⏰ *الحالة:* {days_text}
-🆔 *رقم المعاملة:* `{trans['transaction_id']}`
-📆 *تاريخ الإضافة:* {trans['created_at'][:10]}
-    """
-    
-    return message.strip()
-
-def calculate_days_left(end_date_str):
+def calculate_days_left(end_date: str) -> int:
     """حساب الأيام المتبقية"""
     try:
-        end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+        end = datetime.strptime(end_date, '%Y-%m-%d').date()
         today = datetime.now().date()
-        return (end_date - today).days
+        return (end - today).days
     except:
-        return 999
+        return 0
 
-# ==================== معالجات الأوامر الأساسية ====================
+def get_priority_emoji(days_left: int) -> str:
+    """الحصول على رمز الأولوية"""
+    if days_left <= 0:
+        return '⚫'
+    elif days_left <= 3:
+        return '🔴'
+    elif days_left <= 7:
+        return '🟡'
+    else:
+        return '🟢'
+
+# ==================== Database Instance ====================
+db = Database()
+ai_agent = AIAgent(db)
+
+# ==================== أوامر رئيسية ====================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """أمر البدء /start"""
+    """أمر البدء"""
     user = update.effective_user
     user_id = user.id
     
-    # التحقق من تسجيل المستخدم
+    # التحقق من المستخدم في قاعدة البيانات
     db_user = db.get_user(user_id)
     
     if not db_user:
-        await update.message.reply_text(
-            f"👋 مرحباً *{user.first_name}*!\n\n"
-            "⚠️ أنت غير مسجل في النظام.\n"
-            "📞 يرجى التواصل مع المسؤول لإضافتك.\n\n"
-            f"🆔 معرفك: `{user_id}`\n"
-            "📋 أرسل هذا المعرف للمسؤول",
-            parse_mode='Markdown'
+        # تسجيل مستخدم جديد
+        db.add_user(
+            user_id=user_id,
+            phone_number=f"+{user_id}",  # مؤقت
+            full_name=user.full_name or user.username or "مستخدم",
+            telegram_username=user.username
         )
-        return ConversationHandler.END
+        db_user = db.get_user(user_id)
+    
+    role_emoji = {
+        'admin': '👑',
+        'manager': '👔',
+        'user': '👤'
+    }
+    
+    role_name = {
+        'admin': 'مدير النظام',
+        'manager': 'مدير',
+        'user': 'مستخدم'
+    }
     
     welcome_message = f"""
-🎯 *مرحباً {db_user['full_name']}!*
+╔════════════════════════╗
+  🎯 نظام إدارة المعاملات
+╚════════════════════════╝
 
-أنا بوت إدارة المعاملات والتنبيهات 🤖
+مرحباً {user.first_name}! 👋
 
-✨ *ماذا أستطيع أن أفعل؟*
-━━━━━━━━━━━━━━━━━
-➕ إضافة معاملات جديدة
-📋 عرض معاملاتك
-🔔 إرسال تنبيهات تلقائية
-📊 عرض الإحصائيات
-🔍 البحث عن المعاملات
+{role_emoji.get(db_user['role'], '👤')} الصلاحية: {role_name.get(db_user['role'], 'مستخدم')}
+📊 معاملاتك: {db_user.get('total_transactions', 0)}
+🔴 عاجلة: {db_user.get('critical_count', 0)}
 
-━━━━━━━━━━━━━━━━━
-استخدم القائمة أدناه للبدء 👇
-    """
+اختر من القائمة:
+"""
     
-    await update.message.reply_text(
-        welcome_message,
-        parse_mode='Markdown',
-        reply_markup=get_main_keyboard(user_id)
-    )
+    keyboard = [
+        [
+            InlineKeyboardButton("➕ إضافة معاملة", callback_data='add_transaction'),
+            InlineKeyboardButton("📋 معاملاتي", callback_data='my_transactions')
+        ],
+        [
+            InlineKeyboardButton("🔍 بحث", callback_data='search'),
+            InlineKeyboardButton("📊 الإحصائيات", callback_data='statistics')
+        ],
+        [
+            InlineKeyboardButton("🤖 المساعد الذكي", callback_data='ai_assistant'),
+            InlineKeyboardButton("⚙️ الإعدادات", callback_data='settings')
+        ]
+    ]
     
-    return MAIN_MENU
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """أمر المساعدة"""
-    help_text = """
-📚 *دليل الاستخدام*
-
-*الأوامر المتاحة:*
-━━━━━━━━━━━━━━━━━
-/start - بدء البوت
-/help - عرض المساعدة
-/cancel - إلغاء العملية الحالية
-
-*الأزرار الرئيسية:*
-━━━━━━━━━━━━━━━━━
-➕ *إضافة معاملة* - إضافة معاملة جديدة
-📋 *معاملاتي* - عرض معاملاتك
-🔍 *البحث* - البحث في المعاملات
-📊 *الإحصائيات* - عرض إحصائيات مفصلة
-
-*للمسؤولين:*
-━━━━━━━━━━━━━━━━━
-👨‍💼 لوحة المسؤول - إدارة كاملة للنظام
-👥 إدارة المستخدمين
-📋 عرض جميع المعاملات
-🔔 إدارة التنبيهات
-
-💡 *نصيحة:* استخدم الأزرار لسهولة التنقل!
-    """
+    # إضافة زر لوحة التحكم للمدراء
+    if db_user['role'] in ['admin', 'manager']:
+        keyboard.append([
+            InlineKeyboardButton("🎛️ لوحة التحكم", callback_data='admin_panel')
+        ])
     
-    await update.message.reply_text(help_text, parse_mode='Markdown')
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(welcome_message, reply_markup=reply_markup)
 
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """إلغاء العملية الحالية"""
-    user_id = update.effective_user.id
-    
-    await update.message.reply_text(
-        "❌ تم إلغاء العملية.\n"
-        "استخدم القائمة للبدء من جديد.",
-        reply_markup=get_main_keyboard(user_id)
-    )
-    
-    context.user_data.clear()
-    return ConversationHandler.END
-# ==================== إضافة معاملة جديدة ====================
+# ==================== إضافة معاملة - النظام التفاعلي ====================
 
 async def add_transaction_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """بدء إضافة معاملة"""
-    user_id = update.effective_user.id
-    
-    # التحقق من التسجيل
-    if not db.get_user(user_id):
-        await update.message.reply_text("⚠️ أنت غير مسجل في النظام!")
-        return ConversationHandler.END
-    
-    await update.message.reply_text(
-        "➕ *إضافة معاملة جديدة*\n\n"
-        "الخطوة 1️⃣: اختر نوع المعاملة:",
-        parse_mode='Markdown',
-        reply_markup=get_transaction_types_keyboard()
-    )
-    
-    return TRANSACTION_TYPE
-
-async def transaction_type_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تحديد نوع المعاملة"""
+    """بداية عملية إضافة معاملة"""
     query = update.callback_query
     await query.answer()
     
-    if query.data == "cancel":
-        await query.edit_message_text("❌ تم إلغاء العملية")
-        return ConversationHandler.END
-    
-    type_id = int(query.data.split('_')[1])
-    context.user_data['transaction_type_id'] = type_id
-    
-    type_names = {
-        1: "عقد عمل 📝",
-        2: "إجازة موظف 🏖️",
-        3: "استمارة سيارة 🚗",
-        4: "ترخيص 📄",
-        5: "جلسة قضائية ⚖️"
-    }
-    
-    await query.edit_message_text(
-        f"✅ تم اختيار: *{type_names[type_id]}*\n\n"
-        "الخطوة 2️⃣: أرسل عنوان المعاملة\n"
-        "مثال: عقد عمل - أحمد محمد",
-        parse_mode='Markdown'
-    )
-    
-    return TRANSACTION_TITLE
-
-async def transaction_title_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """استقبال عنوان المعاملة"""
-    title = update.message.text.strip()
-    
-    if len(title) < 3:
-        await update.message.reply_text("⚠️ العنوان قصير جداً! أرسل عنوان أطول:")
-        return TRANSACTION_TITLE
-    
-    context.user_data['title'] = title
-    
-    await update.message.reply_text(
-        f"✅ العنوان: *{title}*\n\n"
-        "الخطوة 3️⃣: أرسل تاريخ الانتهاء\n"
-        "بالصيغة: YYYY-MM-DD\n"
-        "مثال: 2025-12-31",
-        parse_mode='Markdown'
-    )
-    
-    return TRANSACTION_DATE
-
-async def transaction_date_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """استقبال تاريخ الانتهاء"""
-    date_str = update.message.text.strip()
-    
-    # التحقق من صحة التاريخ
-    try:
-        date_obj = datetime.strptime(date_str, '%Y-%m-%d')
-        
-        # التحقق من أن التاريخ في المستقبل
-        if date_obj.date() < datetime.now().date():
-            await update.message.reply_text(
-                "⚠️ التاريخ في الماضي!\n"
-                "أرسل تاريخ في المستقبل بصيغة: YYYY-MM-DD"
-            )
-            return TRANSACTION_DATE
-        
-        context.user_data['end_date'] = date_str
-        
-        # طلب بيانات إضافية حسب النوع
-        type_id = context.user_data['transaction_type_id']
-        
-        if type_id == 1:  # عقد عمل
-            await update.message.reply_text(
-                "✅ التاريخ: *" + date_str + "*\n\n"
-                "الخطوة 4️⃣: أرسل بيانات العقد بهذا الترتيب:\n"
-                "اسم الموظف | رقم العقد | المسمى الوظيفي | الراتب\n\n"
-                "مثال:\n"
-                "أحمد محمد | 2025/001 | محاسب | 8000",
-                parse_mode='Markdown'
-            )
-        elif type_id == 2:  # إجازة
-            await update.message.reply_text(
-                "✅ التاريخ: *" + date_str + "*\n\n"
-                "الخطوة 4️⃣: أرسل بيانات الإجازة:\n"
-                "اسم الموظف | نوع الإجازة | الموظف البديل\n\n"
-                "مثال:\n"
-                "سارة أحمد | سنوية | فاطمة علي",
-                parse_mode='Markdown'
-            )
-        elif type_id == 3:  # سيارة
-            await update.message.reply_text(
-                "✅ التاريخ: *" + date_str + "*\n\n"
-                "الخطوة 4️⃣: أرسل بيانات السيارة:\n"
-                "رقم اللوحة | نوع السيارة | VIN\n\n"
-                "مثال:\n"
-                "أ ب ج 1234 | كامري 2023 | ABC123XYZ",
-                parse_mode='Markdown'
-            )
-        elif type_id == 4:  # ترخيص
-            await update.message.reply_text(
-                "✅ التاريخ: *" + date_str + "*\n\n"
-                "الخطوة 4️⃣: أرسل بيانات الترخيص:\n"
-                "نوع الترخيص | رقم الترخيص | الجهة المصدرة\n\n"
-                "مثال:\n"
-                "سجل تجاري | 1234567890 | وزارة التجارة",
-                parse_mode='Markdown'
-            )
-        elif type_id == 5:  # قضية
-            await update.message.reply_text(
-                "✅ التاريخ: *" + date_str + "*\n\n"
-                "الخطوة 4️⃣: أرسل بيانات القضية:\n"
-                "رقم القضية | المحكمة | بيان القضية\n\n"
-                "مثال:\n"
-                "2025/001 | المحكمة التجارية | نزاع تجاري",
-                parse_mode='Markdown'
-            )
-        
-        return TRANSACTION_DETAILS
-        
-    except ValueError:
-        await update.message.reply_text(
-            "⚠️ صيغة التاريخ غير صحيحة!\n"
-            "أرسل التاريخ بصيغة: YYYY-MM-DD\n"
-            "مثال: 2025-12-31"
-        )
-        return TRANSACTION_DATE
-
-async def transaction_details_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """استقبال البيانات التفصيلية"""
-    details = update.message.text.strip()
-    parts = [p.strip() for p in details.split('|')]
-    
-    type_id = context.user_data['transaction_type_id']
-    data = {}
-    
-    try:
-        if type_id == 1:  # عقد عمل
-            if len(parts) >= 3:
-                data = {
-                    'employee_name': parts[0],
-                    'contract_number': parts[1],
-                    'job_title': parts[2],
-                    'salary': parts[3] if len(parts) > 3 else ''
-                }
-        elif type_id == 2:  # إجازة
-            if len(parts) >= 2:
-                data = {
-                    'employee_name': parts[0],
-                    'vacation_type': parts[1],
-                    'substitute': parts[2] if len(parts) > 2 else ''
-                }
-        elif type_id == 3:  # سيارة
-            if len(parts) >= 2:
-                data = {
-                    'plate_number': parts[0],
-                    'vehicle_type': parts[1],
-                    'vin': parts[2] if len(parts) > 2 else ''
-                }
-        elif type_id == 4:  # ترخيص
-            if len(parts) >= 2:
-                data = {
-                    'license_type': parts[0],
-                    'license_number': parts[1],
-                    'issuing_authority': parts[2] if len(parts) > 2 else ''
-                }
-        elif type_id == 5:  # قضية
-            if len(parts) >= 2:
-                data = {
-                    'case_number': parts[0],
-                    'court_name': parts[1],
-                    'case_description': parts[2] if len(parts) > 2 else ''
-                }
-        
-        context.user_data['data'] = data
-        
-        # حفظ المعاملة
-        user_id = update.effective_user.id
-        transaction_id = db.add_transaction(
-            transaction_type_id=context.user_data['transaction_type_id'],
-            user_id=user_id,
-            title=context.user_data['title'],
-            data=data,
-            end_date=context.user_data['end_date']
-        )
-        
-        if transaction_id:
-            await update.message.reply_text(
-                "✅ *تم إضافة المعاملة بنجاح!*\n\n"
-                f"🆔 رقم المعاملة: `{transaction_id}`\n"
-                f"📌 العنوان: {context.user_data['title']}\n"
-                f"📅 تاريخ الانتهاء: {context.user_data['end_date']}\n\n"
-                "🔔 هل تريد إضافة تنبيهات؟\n"
-                "أرسل عدد الأيام قبل الانتهاء (مثال: 7)\n"
-                "أو أرسل /skip للتخطي",
-                parse_mode='Markdown'
-            )
-            
-            context.user_data['transaction_id'] = transaction_id
-            return NOTIFICATION_DAYS
-        else:
-            await update.message.reply_text(
-                "❌ حدث خطأ في إضافة المعاملة!",
-                reply_markup=get_main_keyboard(user_id)
-            )
-            return ConversationHandler.END
-            
-    except Exception as e:
-        logger.error(f"Error in transaction_details_received: {e}")
-        await update.message.reply_text(
-            "⚠️ خطأ في البيانات المدخلة!\n"
-            "تأكد من الصيغة الصحيحة وأعد المحاولة."
-        )
-        return TRANSACTION_DETAILS
-
-async def notification_days_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """استقبال عدد أيام التنبيه"""
     user_id = update.effective_user.id
     
-    if update.message.text == '/skip':
-        await update.message.reply_text(
-            "✅ تم حفظ المعاملة بدون تنبيهات",
-            reply_markup=get_main_keyboard(user_id)
-        )
-        context.user_data.clear()
-        return ConversationHandler.END
+    # مسح البيانات المؤقتة القديمة
+    clear_user_temp_data(user_id)
+    temp_data = get_user_temp_data(user_id)
+    temp_data['stage'] = 'select_main_type'
+    temp_data['data']['user_id'] = user_id
     
-    try:
-        days = int(update.message.text.strip())
-        
-        if days < 1 or days > 365:
-            await update.message.reply_text("⚠️ أدخل رقم بين 1 و 365")
-            return NOTIFICATION_DAYS
-        
-        # إضافة التنبيه
-        transaction_id = context.user_data['transaction_id']
-        db.add_notification(
-            transaction_id=transaction_id,
-            days_before=days,
-            recipients=[user_id]
-        )
-        
-        await update.message.reply_text(
-            f"✅ تم إضافة تنبيه قبل {days} يوم من الانتهاء!",
-            reply_markup=get_main_keyboard(user_id)
-        )
-        
-        context.user_data.clear()
-        return ConversationHandler.END
-        
-    except ValueError:
-        await update.message.reply_text("⚠️ أدخل رقم صحيح!")
-        return NOTIFICATION_DAYS
-# ==================== عرض المعاملات ====================
-
-async def show_my_transactions(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """عرض معاملات المستخدم"""
-    user_id = update.effective_user.id
+    # جلب الأنواع الرئيسية
+    main_types = db.get_main_types()
     
-    transactions = db.get_active_transactions(user_id=user_id)
-    
-    if not transactions:
-        await update.message.reply_text(
-            "📭 *ليس لديك معاملات حالياً*\n\n"
-            "استخدم ➕ إضافة معاملة لإضافة معاملة جديدة",
-            parse_mode='Markdown'
-        )
-        return
-    
-    # ترتيب حسب الأيام المتبقية
-    for trans in transactions:
-        trans['days_left'] = calculate_days_left(trans['end_date'])
-    
-    transactions.sort(key=lambda x: x['days_left'])
-    
-    message = f"📋 *معاملاتك ({len(transactions)})*\n"
-    message += "━━━━━━━━━━━━━━━━━\n\n"
-    
-    for trans in transactions[:10]:  # أول 10 معاملات
-        message += format_transaction_message(trans) + "\n"
-        message += "━━━━━━━━━━━━━━━━━\n"
-    
-    if len(transactions) > 10:
-        message += f"\n📌 وهناك {len(transactions) - 10} معاملة أخرى"
-    
-    # إضافة أزرار للتفاعل
     keyboard = []
-    for trans in transactions[:5]:
+    for type_obj in main_types:
         keyboard.append([
             InlineKeyboardButton(
-                f"🗑️ حذف: {trans['title'][:30]}",
-                callback_data=f"delete_{trans['transaction_id']}"
+                f"{type_obj['icon']} {type_obj['name']}", 
+                callback_data=f"maintype_{type_obj['id']}"
             )
         ])
     
-    await update.message.reply_text(
-        message,
-        parse_mode='Markdown',
-        reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None
-    )
+    keyboard.append([InlineKeyboardButton("❌ إلغاء", callback_data='cancel')])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    message = """
+╔════════════════════════╗
+  ➕ إضافة معاملة جديدة
+╚════════════════════════╝
 
-async def delete_transaction(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """حذف معاملة"""
+🔹 الخطوة 1/7: اختر نوع المعاملة:
+"""
+    
+    await query.edit_message_text(message, reply_markup=reply_markup)
+    return SELECT_MAIN_TYPE
+
+async def select_main_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """اختيار النوع الرئيسي"""
     query = update.callback_query
     await query.answer()
     
-    transaction_id = int(query.data.split('_')[1])
-    
-    if db.delete_transaction(transaction_id):
-        await query.edit_message_text(
-            "✅ تم حذف المعاملة بنجاح!"
-        )
-    else:
-        await query.edit_message_text(
-            "❌ حدث خطأ في حذف المعاملة!"
-        )
-
-# ==================== البحث والإحصائيات ====================
-
-async def search_transactions(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """البحث في المعاملات"""
-    await update.message.reply_text(
-        "🔍 *البحث في المعاملات*\n\n"
-        "أرسل كلمة للبحث عنها في العناوين:",
-        parse_mode='Markdown'
-    )
-
-async def show_statistics(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """عرض الإحصائيات"""
     user_id = update.effective_user.id
+    temp_data = get_user_temp_data(user_id)
     
-    transactions = db.get_active_transactions(user_id=user_id)
+    # استخراج ID
+    type_id = int(query.data.split('_')[1])
+    temp_data['data']['main_type_id'] = type_id
     
-    total = len(transactions)
-    critical = 0
-    warning = 0
-    safe = 0
+    # جلب التفريعات
+    subtypes = db.get_subtypes(type_id)
     
-    for trans in transactions:
-        days_left = calculate_days_left(trans['end_date'])
-        if days_left <= 3:
-            critical += 1
-        elif days_left <= 7:
-            warning += 1
-        else:
-            safe += 1
+    if not subtypes:
+        # لا توجد تفريعات، ننتقل مباشرة لإدخال العنوان
+        temp_data['data']['transaction_type_id'] = type_id
+        temp_data['stage'] = 'enter_title'
+        
+        message = """
+╔════════════════════════╗
+  ✏️ إدخال العنوان
+╚════════════════════════╝
+
+🔹 الخطوة 2/7: أدخل عنوان المعاملة:
+
+مثال: "عقد أحمد محمد - تجديد"
+"""
+        
+        await query.edit_message_text(message)
+        return ENTER_TITLE
     
-    stats_message = f"""
-📊 *إحصائيات معاملاتك*
-━━━━━━━━━━━━━━━━━
-
-📈 *الإجمالي:* {total} معاملة
-
-🔴 *عاجل (3 أيام):* {critical}
-🟡 *قريب (7 أيام):* {warning}
-🟢 *آمن:* {safe}
-
-━━━━━━━━━━━━━━━━━
-📅 آخر تحديث: {datetime.now().strftime('%Y-%m-%d %H:%M')}
-    """
+    # عرض التفريعات
+    keyboard = []
+    for subtype in subtypes:
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{subtype['icon']} {subtype['name']}", 
+                callback_data=f"subtype_{subtype['id']}"
+            )
+        ])
     
-    await update.message.reply_text(stats_message, parse_mode='Markdown')
+    keyboard.append([InlineKeyboardButton("🔙 رجوع", callback_data='add_transaction')])
+    keyboard.append([InlineKeyboardButton("❌ إلغاء", callback_data='cancel')])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    type_info = db.get_transaction_types()[type_id - 1]
+    
+    message = f"""
+╔════════════════════════╗
+  {type_info['icon']} {type_info['name']}
+╚════════════════════════╝
 
-# ==================== لوحة المسؤول ====================
+🔹 الخطوة 2/7: اختر التفصيل:
+"""
+    
+    await query.edit_message_text(message, reply_markup=reply_markup)
+    return SELECT_SUBTYPE
 
-async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """لوحة تحكم المسؤول"""
+async def select_subtype(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """اختيار التفريع"""
+    query = update.callback_query
+    await query.answer()
+    
     user_id = update.effective_user.id
+    temp_data = get_user_temp_data(user_id)
     
-    if not is_admin(user_id):
-        await update.message.reply_text("⚠️ هذا الأمر للمسؤولين فقط!")
-        return MAIN_MENU
+    # استخراج ID
+    subtype_id = int(query.data.split('_')[1])
+    temp_data['data']['transaction_type_id'] = subtype_id
+    temp_data['stage'] = 'enter_title'
     
-    await update.message.reply_text(
-        "👨‍💼 *لوحة المسؤول*\n\n"
-        "اختر أحد الخيارات من القائمة:",
-        parse_mode='Markdown',
-        reply_markup=get_admin_keyboard()
-    )
-    
-    return ADMIN_MENU
+    message = """
+╔════════════════════════╗
+  ✏️ إدخال العنوان
+╚════════════════════════╝
 
-async def manage_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """إدارة المستخدمين"""
+🔹 الخطوة 3/7: أدخل عنوان المعاملة:
+
+مثال: "تأمين سيارة - أ ب ج 1234"
+
+📝 اكتب العنوان الآن:
+"""
+    
+    await query.edit_message_text(message)
+    return ENTER_TITLE
+
+async def enter_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """إدخال العنوان"""
     user_id = update.effective_user.id
+    temp_data = get_user_temp_data(user_id)
     
-    if not is_admin(user_id):
-        await update.message.reply_text("⚠️ هذا الأمر للمسؤولين فقط!")
-        return
+    title = update.message.text.strip()
     
-    users = db.get_all_users()
+    if len(title) < 3:
+        await update.message.reply_text("❌ العنوان قصير جداً. أدخل عنواناً أطول:")
+        return ENTER_TITLE
     
-    message = f"👥 *قائمة المستخدمين ({len(users)})*\n"
-    message += "━━━━━━━━━━━━━━━━━\n\n"
+    temp_data['data']['title'] = title
+    temp_data['stage'] = 'enter_end_date'
     
-    for user in users:
-        admin_badge = "👑" if user['is_admin'] else "👤"
-        message += f"{admin_badge} *{user['full_name']}*\n"
-        message += f"   📞 {user['phone_number']}\n"
-        message += f"   🆔 `{user['user_id']}`\n\n"
+    # حفظ مؤقتاً
+    message = f"""
+✅ تم الحفظ مؤقتاً!
+
+╔════════════════════════╗
+  📅 تاريخ الانتهاء
+╚════════════════════════╝
+
+🔹 الخطوة 4/7: متى تنتهي المعاملة؟
+
+📝 أدخل التاريخ بصيغة: YYYY-MM-DD
+مثال: 2026-01-15
+
+أو اختر من الأزرار:
+"""
     
+    # أزرار تواريخ سريعة
+    today = datetime.now().date()
     keyboard = [
-        [InlineKeyboardButton("➕ إضافة مستخدم", callback_data="add_user")],
-        [InlineKeyboardButton("🔙 رجوع", callback_data="back_admin")]
+        [
+            InlineKeyboardButton("📅 بعد أسبوع", callback_data=f"quickdate_{(today + timedelta(days=7)).strftime('%Y-%m-%d')}"),
+            InlineKeyboardButton("📅 بعد شهر", callback_data=f"quickdate_{(today + timedelta(days=30)).strftime('%Y-%m-%d')}")
+        ],
+        [
+            InlineKeyboardButton("📅 بعد 3 أشهر", callback_data=f"quickdate_{(today + timedelta(days=90)).strftime('%Y-%m-%d')}"),
+            InlineKeyboardButton("📅 بعد 6 أشهر", callback_data=f"quickdate_{(today + timedelta(days=180)).strftime('%Y-%m-%d')}")
+        ],
+        [InlineKeyboardButton("❌ إلغاء", callback_data='cancel')]
     ]
     
-    await update.message.reply_text(
-        message,
-        parse_mode='Markdown',
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(message, reply_markup=reply_markup)
+    return ENTER_END_DATE
 
-async def add_user_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """بدء إضافة مستخدم"""
+async def quick_date_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """اختيار تاريخ سريع"""
     query = update.callback_query
     await query.answer()
     
-    user_id = query.from_user.id
+    user_id = update.effective_user.id
+    temp_data = get_user_temp_data(user_id)
     
-    if not is_admin(user_id):
-        await query.edit_message_text("⚠️ هذا الأمر للمسؤولين فقط!")
-        return ConversationHandler.END
+    # استخراج التاريخ
+    date_str = query.data.split('_')[1]
+    temp_data['data']['end_date'] = date_str
     
-    await query.edit_message_text(
-        "➕ *إضافة مستخدم جديد*\n\n"
-        "الخطوة 1️⃣: أرسل معرف تليجرام (User ID)\n\n"
-        "💡 للحصول على المعرف:\n"
-        "1. اطلب من المستخدم فتح @userinfobot\n"
-        "2. أرسل أي رسالة للبوت\n"
-        "3. انسخ الرقم الذي يظهر",
-        parse_mode='Markdown'
-    )
-    
-    return ADD_USER_ID
+    # الانتقال لاختيار المسؤول
+    return await show_responsible_selection(query, user_id, temp_data)
 
-async def add_user_id_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """استقبال معرف المستخدم"""
+async def enter_end_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """إدخال تاريخ الانتهاء"""
+    user_id = update.effective_user.id
+    temp_data = get_user_temp_data(user_id)
+    
+    date_text = update.message.text.strip()
+    
+    # التحقق من صحة التاريخ
     try:
-        user_id = int(update.message.text.strip())
-        context.user_data['new_user_id'] = user_id
+        date_obj = datetime.strptime(date_text, '%Y-%m-%d')
+        today = datetime.now().date()
         
-        await update.message.reply_text(
-            f"✅ المعرف: `{user_id}`\n\n"
-            "الخطوة 2️⃣: أرسل رقم الجوال\n"
-            "مثال: +966512345678",
-            parse_mode='Markdown'
-        )
+        if date_obj.date() < today:
+            await update.message.reply_text("❌ التاريخ في الماضي! أدخل تاريخاً في المستقبل:")
+            return ENTER_END_DATE
         
-        return ADD_USER_PHONE
+        temp_data['data']['end_date'] = date_text
+        
+        # الانتقال لاختيار المسؤول
+        return await show_responsible_selection_message(update, user_id, temp_data)
         
     except ValueError:
-        await update.message.reply_text("⚠️ أدخل رقم صحيح!")
-        return ADD_USER_ID
+        await update.message.reply_text("""
+❌ صيغة التاريخ خاطئة!
 
-async def add_user_phone_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """استقبال رقم الجوال"""
-    phone = update.message.text.strip()
-    context.user_data['new_user_phone'] = phone
-    
-    await update.message.reply_text(
-        f"✅ الجوال: {phone}\n\n"
-        "الخطوة 3️⃣: أرسل الاسم الكامل"
-    )
-    
-    return ADD_USER_NAME
+استخدم: YYYY-MM-DD
+مثال: 2026-01-15
+""")
+        return ENTER_END_DATE
 
-async def add_user_name_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """استقبال اسم المستخدم وإضافته"""
-    name = update.message.text.strip()
-    user_id = update.effective_user.id
-    
-    # إضافة المستخدم
-    success = db.add_user(
-        user_id=context.user_data['new_user_id'],
-        phone_number=context.user_data['new_user_phone'],
-        full_name=name,
-        is_admin=0
-    )
-    
-    if success:
-        await update.message.reply_text(
-            "✅ *تم إضافة المستخدم بنجاح!*\n\n"
-            f"👤 الاسم: {name}\n"
-            f"📞 الجوال: {context.user_data['new_user_phone']}\n"
-            f"🆔 المعرف: `{context.user_data['new_user_id']}`",
-            parse_mode='Markdown',
-            reply_markup=get_admin_keyboard()
-        )
-    else:
-        await update.message.reply_text(
-            "❌ حدث خطأ في إضافة المستخدم!",
-            reply_markup=get_admin_keyboard()
-        )
-    
-    context.user_data.clear()
-    return ConversationHandler.END
-
-async def show_all_transactions(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """عرض جميع المعاملات (للمسؤول)"""
-    user_id = update.effective_user.id
-    
-    if not is_admin(user_id):
-        await update.message.reply_text("⚠️ هذا الأمر للمسؤولين فقط!")
-        return
-    
-    transactions = db.get_active_transactions()
-    
-    if not transactions:
-        await update.message.reply_text("📭 لا توجد معاملات في النظام")
-        return
-    
-    # ترتيب حسب الأيام المتبقية
-    for trans in transactions:
-        trans['days_left'] = calculate_days_left(trans['end_date'])
-    
-    transactions.sort(key=lambda x: x['days_left'])
-    
-    message = f"📋 *جميع المعاملات ({len(transactions)})*\n"
-    message += "━━━━━━━━━━━━━━━━━\n\n"
-    
-    # المعاملات العاجلة فقط
-    urgent = [t for t in transactions if t['days_left'] <= 7]
-    
-    if urgent:
-        message += "🔥 *المعاملات العاجلة:*\n\n"
-        for trans in urgent[:10]:
-            message += format_transaction_message(trans) + "\n"
-            message += "━━━━━━━━━━━━━━━━━\n"
-    else:
-        message += "✅ لا توجد معاملات عاجلة\n"
-        message += "جميع المعاملات تحت السيطرة!"
-    
-    await update.message.reply_text(message, parse_mode='Markdown')
-
-async def show_general_statistics(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """إحصائيات عامة (للمسؤول)"""
-    user_id = update.effective_user.id
-    
-    if not is_admin(user_id):
-        await update.message.reply_text("⚠️ هذا الأمر للمسؤولين فقط!")
-        return
-    
-    transactions = db.get_active_transactions()
+async def show_responsible_selection_message(update: Update, user_id: int, temp_data: dict):
+    """عرض اختيار المسؤول (من رسالة)"""
     users = db.get_all_users()
     
-    total = len(transactions)
-    critical = sum(1 for t in transactions if calculate_days_left(t['end_date']) <= 3)
-    warning = sum(1 for t in transactions if 3 < calculate_days_left(t['end_date']) <= 7)
+    keyboard = []
+    for user in users[:10]:  # أول 10 مستخدمين
+        keyboard.append([
+            InlineKeyboardButton(
+                f"👤 {user['full_name']}", 
+                callback_data=f"responsible_{user['user_id']}"
+            )
+        ])
     
-    stats_message = f"""
-📊 *إحصائيات النظام*
-━━━━━━━━━━━━━━━━━
-
-👥 *المستخدمين:* {len(users)}
-📋 *المعاملات:* {total}
-
-🔴 *عاجل:* {critical}
-🟡 *قريب:* {warning}
-🟢 *آمن:* {total - critical - warning}
-
-━━━━━━━━━━━━━━━━━
-📅 {datetime.now().strftime('%Y-%m-%d %H:%M')}
-    """
+    keyboard.append([InlineKeyboardButton("⏭️ تخطي", callback_data='responsible_skip')])
+    keyboard.append([InlineKeyboardButton("❌ إلغاء", callback_data='cancel')])
     
-    await update.message.reply_text(stats_message, parse_mode='Markdown')
-# ==================== معالجات الرسائل النصية ====================
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    message = """
+✅ تم الحفظ مؤقتاً!
 
-async def handle_text_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالج الرسائل النصية من الأزرار"""
-    text = update.message.text
+╔════════════════════════╗
+  👤 الشخص المسؤول
+╚════════════════════════╝
+
+🔹 الخطوة 5/7: من المسؤول عن هذه المعاملة؟
+
+اختر من القائمة أو تخطي:
+"""
+    
+    await update.message.reply_text(message, reply_markup=reply_markup)
+    return SELECT_RESPONSIBLE
+
+async def show_responsible_selection(query, user_id: int, temp_data: dict):
+    """عرض اختيار المسؤول (من callback)"""
+    users = db.get_all_users()
+    
+    keyboard = []
+    for user in users[:10]:
+        keyboard.append([
+            InlineKeyboardButton(
+                f"👤 {user['full_name']}", 
+                callback_data=f"responsible_{user['user_id']}"
+            )
+        ])
+    
+    keyboard.append([InlineKeyboardButton("⏭️ تخطي", callback_data='responsible_skip')])
+    keyboard.append([InlineKeyboardButton("❌ إلغاء", callback_data='cancel')])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    message = """
+✅ تم الحفظ مؤقتاً!
+
+╔════════════════════════╗
+  👤 الشخص المسؤول
+╚════════════════════════╝
+
+🔹 الخطوة 5/7: من المسؤول عن هذه المعاملة؟
+
+اختر من القائمة أو تخطي:
+"""
+    
+    await query.edit_message_text(message, reply_markup=reply_markup)
+    return SELECT_RESPONSIBLE
+
+async def select_responsible(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """اختيار المسؤول"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    temp_data = get_user_temp_data(user_id)
+    
+    if query.data == 'responsible_skip':
+        temp_data['data']['responsible_person_id'] = None
+    else:
+        responsible_id = int(query.data.split('_')[1])
+        temp_data['data']['responsible_person_id'] = responsible_id
+    
+    # الانتقال لاختيار المستلمين
+    return await show_recipients_selection(query, user_id, temp_data)
+
+async def show_recipients_selection(query, user_id: int, temp_data: dict):
+    """عرض اختيار المستلمين"""
+    users = db.get_all_users()
+    selected = temp_data.get('selected_recipients', [])
+    
+    keyboard = []
+    for user in users[:10]:
+        is_selected = user['user_id'] in selected
+        emoji = "✅" if is_selected else "⬜"
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{emoji} {user['full_name']}", 
+                callback_data=f"recipient_toggle_{user['user_id']}"
+            )
+        ])
+    
+    keyboard.append([
+        InlineKeyboardButton("➕ جميع المدراء", callback_data='recipient_all_managers')
+    ])
+    keyboard.append([
+        InlineKeyboardButton(f"✅ تأكيد ({len(selected)} مُختار)", callback_data='recipients_confirm'),
+        InlineKeyboardButton("⏭️ تخطي", callback_data='recipients_skip')
+    ])
+    keyboard.append([InlineKeyboardButton("❌ إلغاء", callback_data='cancel')])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    message = f"""
+╔════════════════════════╗
+  📧 مستلمي التنبيهات
+╚════════════════════════╝
+
+🔹 الخطوة 6/7: من سيستلم التنبيهات؟
+
+✅ المُختارون: {len(selected)}
+
+اختر واحد أو أكثر:
+"""
+    
+    await query.edit_message_text(message, reply_markup=reply_markup)
+    return SELECT_RECIPIENTS
+
+async def toggle_recipient(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تبديل اختيار مستلم"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    temp_data = get_user_temp_data(user_id)
+    
+    if 'selected_recipients' not in temp_data:
+        temp_data['selected_recipients'] = []
+    
+    recipient_id = int(query.data.split('_')[2])
+    
+    if recipient_id in temp_data['selected_recipients']:
+        temp_data['selected_recipients'].remove(recipient_id)
+    else:
+        temp_data['selected_recipients'].append(recipient_id)
+    
+    # تحديث العرض
+    return await show_recipients_selection(query, user_id, temp_data)
+
+async def add_all_managers(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """إضافة جميع المدراء"""
+    query = update.callback_query
+    await query.answer("✅ تم إضافة جميع المدراء")
+    
+    user_id = update.effective_user.id
+    temp_data = get_user_temp_data(user_id)
+    
+    managers = db.get_managers()
+    
+    if 'selected_recipients' not in temp_data:
+        temp_data['selected_recipients'] = []
+    
+    for manager in managers:
+        if manager['user_id'] not in temp_data['selected_recipients']:
+            temp_data['selected_recipients'].append(manager['user_id'])
+    
+    return await show_recipients_selection(query, user_id, temp_data)
+
+async def confirm_recipients(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تأكيد المستلمين"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    temp_data = get_user_temp_data(user_id)
+    
+    temp_data['data']['reminder_recipients'] = temp_data.get('selected_recipients', [])
+    
+    # الانتقال للملاحظات
+    message = """
+╔════════════════════════╗
+  📝 ملاحظات إضافية
+╚════════════════════════╝
+
+🔹 الخطوة 7/7: هل تريد إضافة ملاحظات؟
+
+📝 اكتب ملاحظاتك أو تفاصيل إضافية:
+(مثل: رقم اللوحة، رقم العقد، إلخ)
+
+أو اضغط "تخطي" للانتقال للملخص:
+"""
+    
+    keyboard = [[InlineKeyboardButton("⏭️ تخطي", callback_data='description_skip')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(message, reply_markup=reply_markup)
+    return ENTER_DESCRIPTION
+
+async def skip_recipients(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تخطي المستلمين"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    temp_data = get_user_temp_data(user_id)
+    
+    temp_data['data']['reminder_recipients'] = []
+    
+    # الانتقال للملاحظات
+    message = """
+╔════════════════════════╗
+  📝 ملاحظات إضافية
+╚════════════════════════╝
+
+🔹 الخطوة 7/7: هل تريد إضافة ملاحظات؟
+
+📝 اكتب ملاحظاتك أو تفاصيل إضافية:
+
+أو اضغط "تخطي" للانتقال للملخص:
+"""
+    
+    keyboard = [[InlineKeyboardButton("⏭️ تخطي", callback_data='description_skip')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(message, reply_markup=reply_markup)
+    return ENTER_DESCRIPTION
+
+async def enter_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """إدخال الملاحظات"""
+    user_id = update.effective_user.id
+    temp_data = get_user_temp_data(user_id)
+    
+    description = update.message.text.strip()
+    temp_data['data']['description'] = description
+    
+    # عرض الملخص
+    return await show_summary(update, user_id, temp_data)
+
+async def skip_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تخطي الملاحظات"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    temp_data = get_user_temp_data(user_id)
+    
+    temp_data['data']['description'] = None
+    
+    # عرض الملخص
+    return await show_summary_from_callback(query, user_id, temp_data)
+
+async def show_summary(update: Update, user_id: int, temp_data: dict):
+    """عرض ملخص المعاملة"""
+    data = temp_data['data']
+    
+    # جلب المعلومات
+    trans_type = db.get_transaction_types()[data['transaction_type_id'] - 1]
+    responsible_name = "غير محدد"
+    if data.get('responsible_person_id'):
+        resp_user = db.get_user(data['responsible_person_id'])
+        responsible_name = resp_user['full_name'] if resp_user else "غير محدد"
+    
+    recipients_count = len(data.get('reminder_recipients', []))
+    
+    days_left = calculate_days_left(data['end_date'])
+    priority_emoji = get_priority_emoji(days_left)
+    
+    summary = f"""
+╔════════════════════════════════╗
+  📋 ملخص المعاملة (معاينة)
+╚════════════════════════════════╝
+
+{trans_type['icon']} النوع: {trans_type['name']}
+📝 العنوان: {data['title']}
+📅 تاريخ الانتهاء: {format_date(data['end_date'])}
+⏰ الأيام المتبقية: {days_left} يوم {priority_emoji}
+👤 المسؤول: {responsible_name}
+📧 المستلمون: {recipients_count} شخص
+"""
+    
+    if data.get('description'):
+        summary += f"\n📝 الملاحظات:\n{data['description'][:100]}..."
+    
+    summary += "\n\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n❓ هل المعلومات صحيحة؟"
+    
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ تأكيد وحفظ", callback_data='transaction_confirm'),
+            InlineKeyboardButton("✏️ تعديل", callback_data='transaction_edit')
+        ],
+        [InlineKeyboardButton("❌ إلغاء", callback_data='cancel')]
+    ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(summary, reply_markup=reply_markup)
+    return CONFIRM_TRANSACTION
+
+async def show_summary_from_callback(query, user_id: int, temp_data: dict):
+    """عرض ملخص المعاملة من callback"""
+    data = temp_data['data']
+    
+    trans_type = None
+    all_types = db.get_transaction_types()
+    for t in all_types:
+        if t['id'] == data['transaction_type_id']:
+            trans_type = t
+            break
+    
+    responsible_name = "غير محدد"
+    if data.get('responsible_person_id'):
+        resp_user = db.get_user(data['responsible_person_id'])
+        responsible_name = resp_user['full_name'] if resp_user else "غير محدد"
+    
+    recipients_count = len(data.get('reminder_recipients', []))
+    
+    days_left = calculate_days_left(data['end_date'])
+    priority_emoji = get_priority_emoji(days_left)
+    
+    summary = f"""
+╔════════════════════════════════╗
+  📋 ملخص المعاملة (معاينة)
+╚════════════════════════════════╝
+
+{trans_type['icon']} النوع: {trans_type['name']}
+📝 العنوان: {data['title']}
+📅 تاريخ الانتهاء: {format_date(data['end_date'])}
+⏰ الأيام المتبقية: {days_left} يوم {priority_emoji}
+👤 المسؤول: {responsible_name}
+📧 المستلمون: {recipients_count} شخص
+"""
+    
+    if data.get('description'):
+        summary += f"\n📝 الملاحظات:\n{data['description'][:100]}..."
+    
+    summary += "\n\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n❓ هل المعلومات صحيحة؟"
+    
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ تأكيد وحفظ", callback_data='transaction_confirm'),
+            InlineKeyboardButton("✏️ تعديل", callback_data='transaction_edit')
+        ],
+        [InlineKeyboardButton("❌ إلغاء", callback_data='cancel')]
+    ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(summary, reply_markup=reply_markup)
+    return CONFIRM_TRANSACTION
+
+async def confirm_transaction(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تأكيد وحفظ المعاملة"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    temp_data = get_user_temp_data(user_id)
+    data = temp_data['data']
+    
+    # رسالة الانتظار
+    await query.edit_message_text("⏳ جاري الحفظ في قاعدة البيانات...")
+    
+    # حساب الأولوية
+    days_left = calculate_days_left(data['end_date'])
+    if days_left <= 3:
+        priority = 'critical'
+    elif days_left <= 7:
+        priority = 'high'
+    else:
+        priority = 'normal'
+    
+    # حفظ في قاعدة البيانات
+    transaction_id = db.add_transaction(
+        transaction_type_id=data['transaction_type_id'],
+        user_id=data['user_id'],
+        title=data['title'],
+        end_date=data['end_date'],
+        responsible_person_id=data.get('responsible_person_id'),
+        reminder_recipients=data.get('reminder_recipients', []),
+        description=data.get('description'),
+        priority=priority
+    )
+    
+    if transaction_id:
+        # نجح الحفظ
+        trans_type = None
+        all_types = db.get_transaction_types()
+        for t in all_types:
+            if t['id'] == data['transaction_type_id']:
+                trans_type = t
+                break
+        
+        success_message = f"""
+✅ تم رفع المعاملة بنجاح!
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+🎉 المعاملة #{transaction_id} محفوظة
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+{trans_type['icon']} {data['title']}
+📅 تنتهي: {format_date(data['end_date'])}
+⏰ بعد: {days_left} يوم
+
+📊 إحصائياتك:
+• إجمالي معاملاتك: {db.get_user(user_id)['total_transactions']}
+• التنبيهات: مجدولة تلقائياً ✅
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+        
+        keyboard = [
+            [
+                InlineKeyboardButton("📋 عرض المعاملة", callback_data=f'view_trans_{transaction_id}'),
+                InlineKeyboardButton("➕ إضافة أخرى", callback_data='add_transaction')
+            ],
+            [InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data='main_menu')]
+        ]
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(success_message, reply_markup=reply_markup)
+        
+        # حذف البيانات المؤقتة
+        clear_user_temp_data(user_id)
+        
+        return ConversationHandler.END
+    else:
+        # فشل الحفظ
+        await query.edit_message_text("""
+❌ فشل حفظ المعاملة!
+
+حدث خطأ أثناء الحفظ في قاعدة البيانات.
+يُرجى المحاولة مرة أخرى.
+""")
+        
+        clear_user_temp_data(user_id)
+        return ConversationHandler.END
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """إلغاء العملية"""
+    query = update.callback_query
+    if query:
+        await query.answer()
+        user_id = update.effective_user.id
+        clear_user_temp_data(user_id)
+        
+        await query.edit_message_text("""
+❌ تم إلغاء العملية
+
+جميع البيانات المؤقتة تم حذفها.
+
+/start - للعودة للقائمة الرئيسية
+""")
+    
+    return ConversationHandler.END
+
+# ==================== عرض المعاملات ====================
+
+async def my_transactions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """عرض معاملات المستخدم"""
+    query = update.callback_query
+    await query.answer()
+    
     user_id = update.effective_user.id
     
-    if text == "➕ إضافة معاملة":
-        return await add_transaction_start(update, context)
+    transactions = db.get_transactions_by_role(user_id)
     
-    elif text == "📋 معاملاتي":
-        await show_my_transactions(update, context)
-    
-    elif text == "🔍 البحث":
-        await search_transactions(update, context)
-    
-    elif text == "📊 الإحصائيات":
-        await show_statistics(update, context)
-    
-    elif text == "ℹ️ المساعدة":
-        await help_command(update, context)
-    
-    elif text == "👨‍💼 لوحة المسؤول":
-        return await admin_panel(update, context)
-    
-    elif text == "👥 إدارة المستخدمين":
-        await manage_users(update, context)
-    
-    elif text == "📋 جميع المعاملات":
-        await show_all_transactions(update, context)
-    
-    elif text == "📊 إحصائيات عامة":
-        await show_general_statistics(update, context)
-    
-    elif text == "🔔 التنبيهات":
-        await update.message.reply_text(
-            "🔔 *نظام التنبيهات*\n\n"
-            "✅ التنبيهات التلقائية مفعلة\n"
-            "📬 سيتم إرسال تنبيهات قبل انتهاء المعاملات",
-            parse_mode='Markdown'
-        )
-    
-    elif text == "🔙 العودة للقائمة الرئيسية":
-        await update.message.reply_text(
-            "🏠 القائمة الرئيسية",
-            reply_markup=get_main_keyboard(user_id)
-        )
-        return MAIN_MENU
-    
-    else:
-        await update.message.reply_text(
-            "🤔 لم أفهم طلبك.\n"
-            "استخدم الأزرار أو /help للمساعدة"
-        )
-    
-    return MAIN_MENU
+    if not transactions:
+        message = """
+📋 معاملاتك
 
-# ==================== معالج الأخطاء ====================
+لا توجد معاملات حالياً.
 
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالج الأخطاء العام"""
-    logger.error(f"Exception while handling an update: {context.error}")
-    
-    try:
-        if update and update.effective_message:
-            await update.effective_message.reply_text(
-                "❌ حدث خطأ غير متوقع!\n"
-                "حاول مرة أخرى أو تواصل مع المسؤول."
-            )
-    except:
-        pass
-
-# ==================== الوظيفة الرئيسية ====================
-
-def main():
-    """تشغيل البوت"""
-    
-    if not BOT_TOKEN or BOT_TOKEN == 'YOUR_BOT_TOKEN_HERE':
-        print("❌ خطأ: BOT_TOKEN غير محدد!")
-        print("ضع التوكن في متغير البيئة أو في الكود مباشرة")
+➕ ابدأ بإضافة معاملة جديدة!
+"""
+        keyboard = [[InlineKeyboardButton("➕ إضافة معاملة", callback_data='add_transaction')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(message, reply_markup=reply_markup)
         return
     
-    # إنشاء التطبيق
-    application = Application.builder().token(BOT_TOKEN).build()
+    # تصنيف المعاملات
+    critical = [t for t in transactions if t['days_left'] <= 3]
+    warning = [t for t in transactions if 3 < t['days_left'] <= 7]
+    upcoming = [t for t in transactions if t['days_left'] > 7]
     
-    # معالج المحادثة لإضافة معاملة
-    add_transaction_conv = ConversationHandler(
-        entry_points=[
-            MessageHandler(filters.Regex('^➕ إضافة معاملة$'), add_transaction_start)
+    message = f"""
+📋 معاملاتك ({len(transactions)})
+
+🔴 عاجلة: {len(critical)}
+🟡 تحذير: {len(warning)}
+🟢 قادمة: {len(upcoming)}
+
+اختر فئة لعرضها:
+"""
+    
+    keyboard = [
+        [
+            InlineKeyboardButton(f"🔴 عاجلة ({len(critical)})", callback_data='filter_critical'),
+            InlineKeyboardButton(f"🟡 تحذير ({len(warning)})", callback_data='filter_warning')
         ],
+        [
+            InlineKeyboardButton(f"🟢 قادمة ({len(upcoming)})", callback_data='filter_upcoming'),
+            InlineKeyboardButton("📊 الكل", callback_data='filter_all')
+        ],
+        [InlineKeyboardButton("🔙 رجوع", callback_data='main_menu')]
+    ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(message, reply_markup=reply_markup)
+
+# ==================== الإحصائيات والمساعد الذكي ====================
+
+async def statistics(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """عرض الإحصائيات"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    user = db.get_user(user_id)
+    
+    stats = db.get_stats(user_id if user['role'] != 'admin' else None)
+    
+    message = f"""
+📊 الإحصائيات الشاملة
+
+📈 نظرة عامة:
+• إجمالي المعاملات: {stats['total']}
+• 🔴 عاجلة: {stats['critical']}
+• 🟡 تحذير: {stats['warning']}
+• 🟢 قادمة: {stats['upcoming']}
+• ⚪ آمنة: {stats['safe']}
+
+📂 حسب النوع:
+"""
+    
+    for type_data in stats['by_type'][:5]:
+        message += f"\n{type_data['icon']} {type_data['name']}: {type_data['count']}"
+    
+    message += "\n\n━━━━━━━━━━━━━━━━━━"
+    
+    keyboard = [
+        [InlineKeyboardButton("🤖 تحليل ذكي", callback_data='ai_analyze')],
+        [InlineKeyboardButton("🔙 رجوع", callback_data='main_menu')]
+    ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(message, reply_markup=reply_markup)
+
+async def ai_assistant(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """المساعد الذكي"""
+    query = update.callback_query
+    await query.answer()
+    
+    message = """
+🤖 المساعد الذكي
+
+اختر ما تريد:
+"""
+    
+    keyboard = [
+        [InlineKeyboardButton("📊 تحليل شامل", callback_data='ai_analyze')],
+        [InlineKeyboardButton("📅 جدولة ذكية", callback_data='ai_schedule')],
+        [InlineKeyboardButton("💡 توصيات", callback_data='ai_recommendations')],
+        [InlineKeyboardButton("🔙 رجوع", callback_data='main_menu')]
+    ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(message, reply_markup=reply_markup)
+
+async def ai_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """التحليل الذكي"""
+    query = update.callback_query
+    await query.answer("⏳ جاري التحليل...")
+    
+    user_id = update.effective_user.id
+    
+    analysis = ai_agent.analyze_all_transactions(user_id)
+    
+    message = f"""
+🤖 التحليل الذكي
+
+📊 الإحصائيات:
+• إجمالي: {analysis['total_transactions']}
+• 🔴 عاجلة: {len(analysis['critical'])}
+• 🟡 تحذير: {len(analysis['warning'])}
+• ⚫ منتهية: {len(analysis['overdue'])}
+
+💡 التوصيات الرئيسية:
+"""
+    
+    for i, rec in enumerate(analysis['recommendations'][:3], 1):
+        message += f"\n{i}. {rec['icon']} {rec['title']}\n   {rec['message']}\n"
+    
+    message += "\n━━━━━━━━━━━━━━━━━━"
+    
+    keyboard = [[InlineKeyboardButton("🔙 رجوع", callback_data='ai_assistant')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(message, reply_markup=reply_markup)
+
+# ==================== القائمة الرئيسية ====================
+
+async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """العودة للقائمة الرئيسية"""
+    query = update.callback_query
+    await query.answer()
+    
+    # إعادة عرض القائمة
+    await start(update, context)
+
+# ==================== تشغيل البوت ====================
+
+def run_bot():
+    """تشغيل البوت"""
+    token = os.environ.get('BOT_TOKEN')
+    if not token:
+        logger.error("❌ BOT_TOKEN غير موجود!")
+        return
+    
+    application = Application.builder().token(token).build()
+    
+    # المحادثة الرئيسية لإضافة معاملة
+    conv_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(add_transaction_start, pattern='^add_transaction$')],
         states={
-            TRANSACTION_TYPE: [CallbackQueryHandler(transaction_type_selected)],
-            TRANSACTION_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, transaction_title_received)],
-            TRANSACTION_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, transaction_date_received)],
-            TRANSACTION_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, transaction_details_received)],
-            NOTIFICATION_DAYS: [MessageHandler(filters.TEXT & ~filters.COMMAND, notification_days_received)],
+            SELECT_MAIN_TYPE: [CallbackQueryHandler(select_main_type, pattern='^maintype_')],
+            SELECT_SUBTYPE: [CallbackQueryHandler(select_subtype, pattern='^subtype_')],
+            ENTER_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_title)],
+            ENTER_END_DATE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, enter_end_date),
+                CallbackQueryHandler(quick_date_select, pattern='^quickdate_')
+            ],
+            SELECT_RESPONSIBLE: [
+                CallbackQueryHandler(select_responsible, pattern='^responsible_')
+            ],
+            SELECT_RECIPIENTS: [
+                CallbackQueryHandler(toggle_recipient, pattern='^recipient_toggle_'),
+                CallbackQueryHandler(add_all_managers, pattern='^recipient_all_managers$'),
+                CallbackQueryHandler(confirm_recipients, pattern='^recipients_confirm$'),
+                CallbackQueryHandler(skip_recipients, pattern='^recipients_skip$')
+            ],
+            ENTER_DESCRIPTION: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, enter_description),
+                CallbackQueryHandler(skip_description, pattern='^description_skip$')
+            ],
+            CONFIRM_TRANSACTION: [
+                CallbackQueryHandler(confirm_transaction, pattern='^transaction_confirm$')
+            ]
         },
-        fallbacks=[CommandHandler('cancel', cancel)]
+        fallbacks=[
+            CallbackQueryHandler(cancel, pattern='^cancel$'),
+            CommandHandler('cancel', cancel)
+        ]
     )
     
-    # معالج المحادثة لإضافة مستخدم
-    add_user_conv = ConversationHandler(
-        entry_points=[
-            CallbackQueryHandler(add_user_start, pattern='^add_user$')
-        ],
-        states={
-            ADD_USER_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_user_id_received)],
-            ADD_USER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_user_phone_received)],
-            ADD_USER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_user_name_received)],
-        },
-        fallbacks=[CommandHandler('cancel', cancel)]
-    )
+    application.add_handler(conv_handler)
     
-    # إضافة المعالجات
-    application.add_handler(CommandHandler('start', start))
-    application.add_handler(CommandHandler('help', help_command))
-    application.add_handler(CommandHandler('cancel', cancel))
-    application.add_handler(add_transaction_conv)
-    application.add_handler(add_user_conv)
-    application.add_handler(CallbackQueryHandler(delete_transaction, pattern='^delete_'))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_messages))
+    # الأوامر الأساسية
+    application.add_handler(CommandHandler("start", start))
     
-    # معالج الأخطاء
-    application.add_error_handler(error_handler)
+    # Callback handlers
+    application.add_handler(CallbackQueryHandler(my_transactions, pattern='^my_transactions$'))
+    application.add_handler(CallbackQueryHandler(statistics, pattern='^statistics$'))
+    application.add_handler(CallbackQueryHandler(ai_assistant, pattern='^ai_assistant$'))
+    application.add_handler(CallbackQueryHandler(ai_analyze, pattern='^ai_analyze$'))
+    application.add_handler(CallbackQueryHandler(main_menu_handler, pattern='^main_menu$'))
     
-    # بدء البوت
-    logger.info("🤖 بوت تليجرام يعمل الآن...")
+    logger.info("✅ البوت جاهز!")
+    
+    # تشغيل البوت
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
-    main()
+    run_bot()
