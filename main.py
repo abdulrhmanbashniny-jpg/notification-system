@@ -1,3 +1,4 @@
+from database_supabase import Database
 import threading
 import time
 import sys
