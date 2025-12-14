@@ -3,9 +3,13 @@ from database_supabase import Database
 from datetime import datetime
 import os
 
+# ==================== استيراد AI Agent ====================
+from ai_agent import AIAgent
+
 api = Flask(__name__)
 api.secret_key = os.environ.get('API_SECRET_KEY', 'your-secret-key-here')
 db = Database()
+ai_agent = AIAgent()  # ✅ إضافة AI Agent
 
 # Middleware للمصادقة
 def require_api_key(f):
@@ -180,6 +184,31 @@ def webhook_transaction():
     
     return jsonify({'success': False}), 500
 
+# ==================== AI Agent Endpoints ✨ ====================
+
+@api.route('/api/v1/ai/analyze', methods=['GET'])
+@require_api_key
+def ai_analyze():
+    """تحليل ذكي بواسطة AI"""
+    user_id = request.args.get('user_id', type=int)
+    analysis = ai_agent.analyze_transactions(user_id=user_id)
+    return jsonify({'success': True, 'analysis': analysis})
+
+@api.route('/api/v1/ai/schedule', methods=['GET'])
+@require_api_key
+def ai_schedule():
+    """جدولة ذكية"""
+    transactions = db.get_active_transactions()
+    schedule = ai_agent.smart_scheduling(transactions)
+    return jsonify({'success': True, 'schedule': schedule})
+
+@api.route('/api/v1/ai/predict/<int:transaction_id>', methods=['GET'])
+@require_api_key
+def ai_predict(transaction_id):
+    """توقع التأخيرات"""
+    prediction = ai_agent.predict_delays(transaction_id)
+    return jsonify({'success': True, 'prediction': prediction})
+
 # ==================== Health Check ====================
 
 @api.route('/api/v1/health', methods=['GET'])
@@ -209,7 +238,11 @@ def api_docs():
             'POST /users': 'إضافة مستخدم',
             'GET /stats': 'الإحصائيات',
             'POST /webhook/transaction': 'استقبال webhook',
-            'GET /health': 'فحص الصحة'
+            'GET /ai/analyze': '🤖 تحليل ذكي بواسطة AI',
+            'GET /ai/schedule': '🤖 جدولة ذكية',
+            'GET /ai/predict/:id': '🤖 توقع التأخيرات',
+            'GET /health': 'فحص الصحة',
+            'GET /docs': 'التوثيق'
         }
     }
     return jsonify(docs)
