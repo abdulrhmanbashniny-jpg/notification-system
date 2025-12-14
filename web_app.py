@@ -683,6 +683,25 @@ def run_web_app():
     """تشغيل الموقع"""
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
+@app.route('/edit-transaction/<int:transaction_id>', methods=['GET', 'POST'])
+def edit_transaction(transaction_id):
+    """صفحة تعديل معاملة"""
+    if request.method == 'GET':
+        trans = db.get_transaction(transaction_id)
+        if not trans:
+            return redirect('/')
+        
+        return f"""
+        <h1>تعديل المعاملة #{transaction_id}</h1>
+        <p>هذه الميزة قيد التطوير</p>
+        <a href="/">العودة</a>
+        """
+    
+    # POST: تحديث المعاملة
+    title = request.form.get('title')
+    end_date = request.form.get('end_date')
+    db.update_transaction(transaction_id, title, end_date)
+    return redirect('/')
 
 if __name__ == '__main__':
     run_web_app()
