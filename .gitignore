@@ -1,19 +1,12 @@
-# ملفات البيئة
-.env
-*.env
-
-# قاعدة البيانات
-*.db
-*.sqlite
-*.sqlite3
-data/
-
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
+env/
+venv/
+ENV/
 build/
 develop-eggs/
 dist/
@@ -30,17 +23,19 @@ wheels/
 .installed.cfg
 *.egg
 
+# Environment
+.env
+.env.local
+
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-*~
 
-# نظام التشغيل
+# OS
 .DS_Store
 Thumbs.db
 
-# السجلات
+# Logs
 *.log
-logs/
