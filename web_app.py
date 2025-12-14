@@ -1,6 +1,6 @@
 """
-🌐 Modern Web Application 2025 - التصميم العصري
-موقع تفاعلي بتقنيات حديثة: Dark Mode, Real-time, Charts, Animations
+🌐 Web Application 2025 - التصميم العصري
+موقع تفاعلي بتقنيات حديثة: Dark Mode, Real-time, Animations
 """
 import os
 from flask import Flask, render_template_string, request, redirect, jsonify, session
@@ -16,7 +16,18 @@ app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(32))
 db = Database()
 ai_agent = AIAgent(db)
 
-# ==================== الصفحة الرئيسية الجديدة ====================
+# ==================== Health Check ====================
+
+@app.route('/health')
+def health():
+    """نقطة فحص الصحة"""
+    return jsonify({
+        'status': 'healthy',
+        'timestamp': datetime.now().isoformat(),
+        'service': 'transactions-system'
+    })
+
+# ==================== الصفحة الرئيسية ====================
 
 @app.route('/')
 def index():
@@ -33,9 +44,6 @@ def index():
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>🚀 نظام إدارة المعاملات 2025</title>
-    
-    <!-- Chart.js -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
     
     <style>
         :root {
@@ -80,7 +88,6 @@ def index():
             min-height: 100vh;
         }
         
-        /* Animated Background */
         .bg-animated {
             position: fixed;
             top: 0;
@@ -96,14 +103,12 @@ def index():
             opacity: 0.03;
         }
         
-        /* Container */
         .container {
             max-width: 1400px;
             margin: 0 auto;
             padding: 20px;
         }
         
-        /* Header Modern */
         .header-modern {
             background: var(--light);
             padding: 30px;
@@ -153,7 +158,6 @@ def index():
             background-clip: text;
         }
         
-        /* Theme Toggle */
         .theme-toggle {
             width: 60px;
             height: 32px;
@@ -189,7 +193,6 @@ def index():
             right: 30px;
         }
         
-        /* Nav Pills */
         .nav-pills {
             display: flex;
             gap: 12px;
@@ -216,7 +219,6 @@ def index():
             background: var(--primary-dark);
         }
         
-        /* Stats Grid Modern */
         .stats-modern {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -270,7 +272,6 @@ def index():
             font-weight: 600;
         }
         
-        /* Search Bar Modern */
         .search-modern {
             background: var(--light);
             padding: 30px;
@@ -338,17 +339,6 @@ def index():
             box-shadow: 0 8px 16px var(--shadow-lg);
         }
         
-        .btn-secondary {
-            background: var(--border);
-            color: var(--text);
-        }
-        
-        .btn-secondary:hover {
-            background: var(--dark);
-            color: white;
-        }
-        
-        /* Transaction Cards Modern */
         .transactions-modern {
             display: grid;
             gap: 20px;
@@ -429,21 +419,6 @@ def index():
             color: #059669;
         }
         
-        [data-theme="dark"] .badge-critical {
-            background: linear-gradient(135deg, #7f1d1d, #991b1b);
-            color: #fca5a5;
-        }
-        
-        [data-theme="dark"] .badge-warning {
-            background: linear-gradient(135deg, #78350f, #92400e);
-            color: #fcd34d;
-        }
-        
-        [data-theme="dark"] .badge-safe {
-            background: linear-gradient(135deg, #064e3b, #065f46);
-            color: #6ee7b7;
-        }
-        
         .transaction-meta {
             display: flex;
             flex-wrap: wrap;
@@ -482,14 +457,12 @@ def index():
         .btn-view { background: var(--primary); color: white; }
         .btn-edit { background: var(--success); color: white; }
         .btn-notify { background: var(--warning); color: white; }
-        .btn-delete { background: var(--danger); color: white; }
         
         .btn-action:hover {
             transform: translateY(-2px);
             box-shadow: 0 4px 8px var(--shadow);
         }
         
-        /* Empty State */
         .empty-state {
             text-align: center;
             padding: 80px 20px;
@@ -517,7 +490,6 @@ def index():
             font-size: 1.1em;
         }
         
-        /* Footer Modern */
         .footer-modern {
             text-align: center;
             padding: 40px 20px;
@@ -528,7 +500,6 @@ def index():
             border: 1px solid var(--border);
         }
         
-        /* Floating Action Button */
         .fab {
             position: fixed;
             bottom: 30px;
@@ -554,7 +525,6 @@ def index():
             box-shadow: 0 12px 32px var(--shadow-lg);
         }
         
-        /* Responsive */
         @media (max-width: 768px) {
             .search-grid {
                 grid-template-columns: 1fr;
@@ -578,7 +548,6 @@ def index():
             }
         }
         
-        /* Loading Animation */
         @keyframes fadeIn {
             from {
                 opacity: 0;
@@ -605,7 +574,6 @@ def index():
     <div class="bg-animated"></div>
     
     <div class="container">
-        <!-- Header -->
         <div class="header-modern">
             <div class="header-content">
                 <div class="header-top">
@@ -626,7 +594,6 @@ def index():
             </div>
         </div>
         
-        <!-- Stats -->
         <div class="stats-modern">
             <div class="stat-modern">
                 <span class="stat-icon">📊</span>
@@ -659,7 +626,6 @@ def index():
             </div>
         </div>
         
-        <!-- Search -->
         <div class="search-modern">
             <form method="GET" action="/">
                 <div class="search-grid">
@@ -703,7 +669,6 @@ def index():
             </form>
         </div>
         
-        <!-- Transactions -->
         {% if transactions %}
         <div class="transactions-modern">
             {% for trans in transactions %}
@@ -757,24 +722,21 @@ def index():
         </div>
         {% endif %}
         
-        <!-- Footer -->
         <div class="footer-modern">
             <p style="font-weight: 600; margin-bottom: 8px;">
                 🚀 نظام إدارة المعاملات v2.0
             </p>
             <p style="color: var(--text-light);">
-                مدعوم بـ Supabase + AI • {{ datetime.now().strftime('%Y') }}
+                مدعوم بـ Supabase + AI • {{ datetime.now().year }}
             </p>
         </div>
     </div>
     
-    <!-- Floating Action Button -->
     <a href="/add-transaction" class="fab" title="إضافة معاملة">
         ➕
     </a>
     
     <script>
-        // Theme Toggle
         function toggleTheme() {
             const html = document.documentElement;
             const currentTheme = html.getAttribute('data-theme');
@@ -783,12 +745,8 @@ def index():
             localStorage.setItem('theme', newTheme);
         }
         
-        // Load saved theme
         const savedTheme = localStorage.getItem('theme') || 'light';
         document.documentElement.setAttribute('data-theme', savedTheme);
-        
-        // Auto refresh every 30 seconds
-        // setInterval(() => location.reload(), 30000);
     </script>
 </body>
 </html>
@@ -803,3 +761,518 @@ def index():
         get_priority_class=lambda d: 'critical' if d <= 3 else 'warning' if d <= 7 else 'safe',
         datetime=datetime
     )
+
+# ==================== صفحة إضافة معاملة ====================
+
+@app.route('/add-transaction', methods=['GET', 'POST'])
+def add_transaction():
+    """صفحة إضافة معاملة تفاعلية"""
+    
+    if request.method == 'POST':
+        try:
+            transaction_type_id = int(request.form.get('transaction_type_id'))
+            user_id = int(request.form.get('user_id'))
+            title = request.form.get('title')
+            end_date = request.form.get('end_date')
+            responsible_person_id = request.form.get('responsible_person_id')
+            description = request.form.get('description')
+            
+            recipients = request.form.getlist('reminder_recipients[]')
+            recipients = [int(r) for r in recipients if r]
+            
+            days_left = (datetime.strptime(end_date, '%Y-%m-%d').date() - datetime.now().date()).days
+            priority = 'critical' if days_left <= 3 else 'high' if days_left <= 7 else 'normal'
+            
+            transaction_id = db.add_transaction(
+                transaction_type_id=transaction_type_id,
+                user_id=user_id,
+                title=title,
+                end_date=end_date,
+                responsible_person_id=int(responsible_person_id) if responsible_person_id else None,
+                reminder_recipients=recipients,
+                description=description if description else None,
+                priority=priority
+            )
+            
+            if transaction_id:
+                return redirect(f'/transaction/{transaction_id}')
+            else:
+                error = "فشل حفظ المعاملة"
+        except Exception as e:
+            error = f"خطأ: {e}"
+    
+    main_types = db.get_main_types()
+    all_types = db.get_transaction_types()
+    users = db.get_all_users()
+    
+    # بناء خريطة التفريعات
+    subtypes_map = {}
+    for type_obj in all_types:
+        if type_obj['parent_id']:
+            parent_id = type_obj['parent_id']
+            if parent_id not in subtypes_map:
+                subtypes_map[parent_id] = []
+            subtypes_map[parent_id].append(type_obj)
+    
+    subtypes_json = json.dumps({k: [dict(v) for v in vals] for k, vals in subtypes_map.items()})
+    
+    html = """
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>➕ إضافة معاملة جديدة</title>
+    
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --secondary: #8b5cf6;
+            --success: #10b981;
+            --danger: #ef4444;
+            --dark: #1f2937;
+            --light: #f9fafb;
+            --text: #111827;
+            --text-light: #6b7280;
+            --border: #e5e7eb;
+            --shadow: rgba(0, 0, 0, 0.1);
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        .form-card {
+            background: white;
+            border-radius: 24px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+        }
+        
+        .form-header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        
+        .form-header h1 {
+            font-size: 2.5em;
+            color: var(--primary);
+            margin-bottom: 10px;
+        }
+        
+        .form-header p {
+            color: var(--text-light);
+            font-size: 1.1em;
+        }
+        
+        .form-group {
+            margin-bottom: 25px;
+        }
+        
+        .form-label {
+            display: block;
+            font-weight: 700;
+            color: var(--text);
+            margin-bottom: 10px;
+            font-size: 1.05em;
+        }
+        
+        .form-label .required {
+            color: var(--danger);
+            margin-right: 5px;
+        }
+        
+        .form-input,
+        .form-select,
+        .form-textarea {
+            width: 100%;
+            padding: 14px 16px;
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            font-size: 1em;
+            font-family: inherit;
+            transition: all 0.3s;
+        }
+        
+        .form-input:focus,
+        .form-select:focus,
+        .form-textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        }
+        
+        .form-textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+        
+        .form-hint {
+            display: block;
+            color: var(--text-light);
+            font-size: 0.9em;
+            margin-top: 6px;
+        }
+        
+        .recipients-list {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            padding: 10px;
+        }
+        
+        .recipient-item {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            border-radius: 8px;
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+        
+        .recipient-item:hover {
+            background: var(--light);
+        }
+        
+        .recipient-item input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            margin-left: 10px;
+            cursor: pointer;
+        }
+        
+        .recipient-item label {
+            flex: 1;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        
+        .form-actions {
+            display: flex;
+            gap: 15px;
+            margin-top: 40px;
+        }
+        
+        .btn {
+            flex: 1;
+            padding: 16px 32px;
+            border: none;
+            border-radius: 12px;
+            font-size: 1.1em;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-decoration: none;
+            text-align: center;
+            display: inline-block;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 24px rgba(99, 102, 241, 0.3);
+        }
+        
+        .btn-secondary {
+            background: var(--border);
+            color: var(--text);
+        }
+        
+        .btn-secondary:hover {
+            background: var(--dark);
+            color: white;
+        }
+        
+        .subtypes-group {
+            display: none;
+            animation: fadeIn 0.3s;
+        }
+        
+        .subtypes-group.show {
+            display: block;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        @media (max-width: 768px) {
+            .form-card {
+                padding: 25px;
+            }
+            
+            .form-header h1 {
+                font-size: 2em;
+            }
+            
+            .form-actions {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="form-card">
+            <div class="form-header">
+                <h1>➕ إضافة معاملة جديدة</h1>
+                <p>املأ البيانات التالية بدقة</p>
+            </div>
+            
+            <form method="POST" action="/add-transaction" id="transactionForm">
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        <span class="required">*</span>
+                        نوع المعاملة الرئيسي
+                    </label>
+                    <select name="main_type" id="mainType" class="form-select" required onchange="loadSubtypes(this.value)">
+                        <option value="">-- اختر النوع --</option>
+                        {% for type in main_types %}
+                        <option value="{{ type.id }}">
+                            {{ type.icon }} {{ type.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="form-group subtypes-group" id="subtypesGroup">
+                    <label class="form-label">
+                        <span class="required">*</span>
+                        التفصيل
+                    </label>
+                    <select name="subtype" id="subType" class="form-select">
+                        <option value="">-- اختر التفصيل --</option>
+                    </select>
+                </div>
+                
+                <input type="hidden" name="transaction_type_id" id="finalTypeId" required>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        <span class="required">*</span>
+                        عنوان المعاملة
+                    </label>
+                    <input type="text" name="title" class="form-input" 
+                           placeholder="مثال: رخصة بناء عمارة سكنية" required minlength="3">
+                    <span class="form-hint">أدخل عنواناً واضحاً ومختصراً</span>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        <span class="required">*</span>
+                        تاريخ الانتهاء
+                    </label>
+                    <input type="date" name="end_date" class="form-input" 
+                           required min="{{ datetime.now().strftime('%Y-%m-%d') }}">
+                    <span class="form-hint">متى تنتهي صلاحية هذه المعاملة؟</span>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        <span class="required">*</span>
+                        صاحب المعاملة
+                    </label>
+                    <select name="user_id" class="form-select" required>
+                        <option value="">-- اختر المستخدم --</option>
+                        {% for user in users %}
+                        <option value="{{ user.user_id }}">
+                            👤 {{ user.full_name }} {% if user.department %}({{ user.department }}){% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        الشخص المسؤول عن المتابعة
+                    </label>
+                    <select name="responsible_person_id" class="form-select">
+                        <option value="">-- لا يوجد (اختياري) --</option>
+                        {% for user in users %}
+                        <option value="{{ user.user_id }}">
+                            👤 {{ user.full_name }} {% if user.department %}({{ user.department }}){% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <span class="form-hint">من سيتابع هذه المعاملة؟</span>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        من سيستلم التنبيهات؟
+                    </label>
+                    <div class="recipients-list">
+                        {% for user in users %}
+                        <div class="recipient-item">
+                            <input type="checkbox" 
+                                   name="reminder_recipients[]" 
+                                   value="{{ user.user_id }}" 
+                                   id="recipient_{{ user.user_id }}">
+                            <label for="recipient_{{ user.user_id }}">
+                                👤 {{ user.full_name }} {% if user.department %}({{ user.department }}){% endif %}
+                            </label>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <span class="form-hint">يمكنك اختيار أكثر من شخص</span>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        ملاحظات إضافية
+                    </label>
+                    <textarea name="description" class="form-textarea" 
+                              placeholder="أي معلومات إضافية عن المعاملة..."></textarea>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">
+                        ✅ حفظ المعاملة
+                    </button>
+                    <a href="/" class="btn btn-secondary">
+                        ❌ إلغاء
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <script>
+        const subtypesData = {{ subtypes_json | safe }};
+        
+        function loadSubtypes(mainTypeId) {
+            const subtypesGroup = document.getElementById('subtypesGroup');
+            const subTypeSelect = document.getElementById('subType');
+            const finalTypeInput = document.getElementById('finalTypeId');
+            
+            subTypeSelect.innerHTML = '<option value="">-- اختر التفصيل --</option>';
+            
+            if (!mainTypeId) {
+                subtypesGroup.classList.remove('show');
+                finalTypeInput.value = '';
+                return;
+            }
+            
+            const subtypes = subtypesData[mainTypeId] || [];
+            
+            if (subtypes.length > 0) {
+                subtypes.forEach(subtype => {
+                    const option = document.createElement('option');
+                    option.value = subtype.id;
+                    option.textContent = `${subtype.icon} ${subtype.name}`;
+                    subTypeSelect.appendChild(option);
+                });
+                
+                subtypesGroup.classList.add('show');
+                finalTypeInput.value = '';
+            } else {
+                subtypesGroup.classList.remove('show');
+                finalTypeInput.value = mainTypeId;
+            }
+        }
+        
+        document.getElementById('subType').addEventListener('change', function() {
+            const finalTypeInput = document.getElementById('finalTypeId');
+            finalTypeInput.value = this.value;
+        });
+        
+        document.getElementById('transactionForm').addEventListener('submit', function(e) {
+            const finalTypeId = document.getElementById('finalTypeId').value;
+            
+            if (!finalTypeId) {
+                e.preventDefault();
+                alert('❌ يرجى اختيار نوع المعاملة بالكامل');
+                return false;
+            }
+        });
+    </script>
+</body>
+</html>
+    """
+    
+    return render_template_string(
+        html,
+        main_types=main_types,
+        users=users,
+        subtypes_json=subtypes_json,
+        datetime=datetime
+    )
+
+# ==================== عرض معاملة واحدة ====================
+
+@app.route('/transaction/<int:transaction_id>')
+def view_transaction(transaction_id):
+    """عرض تفاصيل معاملة"""
+    transaction = db.get_transaction(transaction_id)
+    
+    if not transaction:
+        return "المعاملة غير موجودة", 404
+    
+    return jsonify(transaction)
+
+# ==================== Dashboard ====================
+
+@app.route('/dashboard')
+def dashboard():
+    """لوحة التحكم"""
+    return jsonify({
+        'message': 'Dashboard قيد التطوير',
+        'stats': db.get_stats()
+    })
+
+# ==================== API ====================
+
+@app.route('/api/v1/transactions')
+def api_transactions():
+    """API: جلب المعاملات"""
+    transactions = db.get_active_transactions()
+    return jsonify(transactions)
+
+@app.route('/api/v1/stats')
+def api_stats():
+    """API: الإحصائيات"""
+    return jsonify(db.get_stats())
+
+@app.route('/api/v1/docs')
+def api_docs():
+    """توثيق API"""
+    return jsonify({
+        'version': '1.0',
+        'endpoints': {
+            '/api/v1/transactions': 'GET - جلب جميع المعاملات',
+            '/api/v1/stats': 'GET - الإحصائيات',
+            '/health': 'GET - فحص الصحة'
+        }
+    })
+
+# ==================== تشغيل الموقع ====================
+
+def run_web():
+    """تشغيل خادم الويب"""
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port, debug=False)
+
+if __name__ == '__main__':
+    run_web()
