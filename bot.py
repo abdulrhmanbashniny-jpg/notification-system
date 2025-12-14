@@ -2,7 +2,6 @@ from database_supabase import Database
 import logging
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, ContextTypes, filters
-from database import Database
 from datetime import datetime, timedelta
 import os
 
