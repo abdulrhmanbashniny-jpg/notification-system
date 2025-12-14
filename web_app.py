@@ -9,7 +9,7 @@ import json
 app = Flask(__name__)
 db = Database()
 
-# ==================== الصفحة الرئيسية ====================
+# ==================== HTML Templates ====================
 
 DASHBOARD_HTML = '''
 <!DOCTYPE html>
@@ -17,64 +17,248 @@ DASHBOARD_HTML = '''
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>نظام إدارة المعاملات</title>
+    <title>نظام إدارة المعاملات والتنبيهات</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎯</text></svg>">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f5f5; }
-        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 40px 20px; text-align: center; }
-        .header h1 { font-size: 36px; margin-bottom: 15px; }
-        .header p { font-size: 18px; opacity: 0.9; }
-        .header-buttons { margin-top: 25px; }
+        
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .header { 
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 30px 20px;
+            text-align: center;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 { 
+            font-size: 42px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 12px;
+            font-weight: 800;
+        }
+        
+        .header p { 
+            font-size: 18px;
+            color: #666;
+            margin-bottom: 25px;
+        }
+        
+        .header-buttons { margin-top: 20px; }
+        
         .header-buttons a { 
-            background: white; color: #667eea; padding: 15px 35px; 
-            text-decoration: none; border-radius: 8px; font-weight: bold; 
-            display: inline-block; margin: 8px; font-size: 16px;
-            transition: all 0.3s;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 35px;
+            text-decoration: none;
+            border-radius: 50px;
+            font-weight: 700;
+            display: inline-block;
+            margin: 8px;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
         }
-        .header-buttons a:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
-        .container { max-width: 1400px; margin: 30px auto; padding: 20px; }
-        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 25px; margin-bottom: 35px; }
+        
+        .header-buttons a:hover { 
+            transform: translateY(-3px);
+            box-shadow: 0 6px 25px rgba(102, 126, 234, 0.6);
+        }
+        
+        .container { 
+            max-width: 1400px;
+            margin: 30px auto;
+            padding: 20px;
+        }
+        
+        .stats { 
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 25px;
+            margin-bottom: 35px;
+        }
+        
         .stat-card { 
-            background: white; padding: 35px; border-radius: 12px; 
-            text-align: center; box-shadow: 0 3px 15px rgba(0,0,0,0.1);
-            transition: all 0.3s;
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
         }
-        .stat-card:hover { transform: translateY(-5px); box-shadow: 0 8px 25px rgba(0,0,0,0.15); }
-        .stat-card h2 { font-size: 56px; color: #667eea; margin-bottom: 12px; font-weight: bold; }
-        .stat-card p { color: #666; font-size: 20px; font-weight: 500; }
+        
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 5px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        .stat-card:hover { 
+            transform: translateY(-8px);
+            box-shadow: 0 15px 40px rgba(0,0,0,0.2);
+        }
+        
+        .stat-card h2 { 
+            font-size: 64px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 15px;
+            font-weight: 900;
+        }
+        
+        .stat-card p { 
+            color: #666;
+            font-size: 20px;
+            font-weight: 600;
+        }
+        
         .card { 
-            background: white; border-radius: 12px; padding: 35px; 
-            margin-bottom: 25px; box-shadow: 0 3px 15px rgba(0,0,0,0.1); 
+            background: white;
+            border-radius: 20px;
+            padding: 35px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
         }
-        .card h2 { color: #333; margin-bottom: 20px; font-size: 26px; }
+        
+        .card h2 { 
+            color: #333;
+            margin-bottom: 25px;
+            font-size: 28px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
         .btn { 
-            background: #667eea; color: white; padding: 14px 28px; 
-            border: none; border-radius: 6px; text-decoration: none; 
-            display: inline-block; margin: 6px; font-weight: bold; 
-            font-size: 15px; cursor: pointer; transition: all 0.3s;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 14px 28px;
+            border: none;
+            border-radius: 50px;
+            text-decoration: none;
+            display: inline-block;
+            margin: 8px 5px;
+            font-weight: 700;
+            font-size: 15px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
         }
-        .btn:hover { background: #764ba2; transform: translateY(-2px); }
-        .btn-success { background: #28a745; }
-        .btn-success:hover { background: #218838; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { padding: 16px; text-align: right; border-bottom: 1px solid #e0e0e0; }
-        th { background: #667eea; color: white; font-weight: 600; }
-        tbody tr { transition: background 0.2s; }
-        tbody tr:hover { background: #f8f9fa; }
-        .empty { text-align: center; padding: 70px; color: #999; font-size: 20px; }
-        .badge { padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: bold; }
-        .badge-admin { background: #ffd700; color: #333; }
-        .badge-user { background: #e3f2fd; color: #1976d2; }
-        .footer { text-align: center; padding: 30px; color: #999; margin-top: 40px; }
+        
+        .btn:hover { 
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+        }
+        
+        .btn-success { 
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);
+        }
+        
+        .btn-success:hover { 
+            box-shadow: 0 6px 20px rgba(40, 167, 69, 0.5);
+        }
+        
+        table { 
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        th, td { 
+            padding: 18px;
+            text-align: right;
+            border-bottom: 1px solid #e8e8e8;
+        }
+        
+        th { 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-weight: 700;
+            font-size: 15px;
+        }
+        
+        tbody tr { 
+            transition: all 0.2s ease;
+        }
+        
+        tbody tr:hover { 
+            background: linear-gradient(to right, #f8f9ff, #fff);
+            transform: scale(1.01);
+        }
+        
+        .empty { 
+            text-align: center;
+            padding: 80px 20px;
+            color: #999;
+            font-size: 20px;
+        }
+        
+        .badge { 
+            padding: 8px 16px;
+            border-radius: 50px;
+            font-size: 13px;
+            font-weight: 700;
+            display: inline-block;
+        }
+        
+        .badge-admin { 
+            background: linear-gradient(135deg, #ffd700 0%, #ffed4e 100%);
+            color: #333;
+        }
+        
+        .badge-user { 
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+            color: #1976d2;
+        }
+        
+        .badge-active {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+        }
+        
+        .footer { 
+            text-align: center;
+            padding: 40px;
+            color: white;
+            margin-top: 50px;
+            opacity: 0.9;
+        }
+        
+        .footer p { 
+            margin: 8px 0;
+            font-size: 15px;
+        }
+        
+        @media (max-width: 768px) {
+            .header h1 { font-size: 32px; }
+            .stat-card h2 { font-size: 48px; }
+            .card h2 { font-size: 22px; }
+        }
     </style>
 </head>
 <body>
     <div class="header">
         <h1>🎯 نظام إدارة المعاملات والتنبيهات</h1>
-        <p>إدارة شاملة ومتقدمة لجميع المعاملات</p>
+        <p>منصة متكاملة لإدارة جميع المعاملات بكفاءة وذكاء</p>
         <div class="header-buttons">
             <a href="/add-sample-data">📊 إضافة بيانات تجريبية</a>
-            <a href="/register-admin">👑 تسجيل مسؤول</a>
+            <a href="/setup-admin">👑 إعداد حساب المسؤول</a>
         </div>
     </div>
     
@@ -96,7 +280,9 @@ DASHBOARD_HTML = '''
         
         <div class="card">
             <h2>📥 تصدير البيانات إلى Excel</h2>
-            <p style="color: #666; margin-bottom: 20px; font-size: 16px;">اختر نوع المعاملات لتصديرها:</p>
+            <p style="color: #666; margin-bottom: 25px; font-size: 16px;">
+                قم بتصدير المعاملات بصيغة Excel للحصول على تحليل مفصل:
+            </p>
             <a href="/export/all" class="btn btn-success">📊 تصدير جميع البيانات</a>
             <a href="/export/contracts" class="btn">📝 عقود العمل</a>
             <a href="/export/vacations" class="btn">🏖️ الإجازات</a>
@@ -106,30 +292,43 @@ DASHBOARD_HTML = '''
         </div>
         
         <div class="card">
-            <h2>📋 المعاملات النشطة (آخر 20 معاملة)</h2>
+            <h2>📋 المعاملات النشطة</h2>
             {% if transactions %}
             <table>
                 <thead>
                     <tr>
-                        <th style="width: 50px;">#</th>
-                        <th>العنوان</th>
-                        <th style="width: 150px;">تاريخ الانتهاء</th>
-                        <th style="width: 100px;">الحالة</th>
+                        <th style="width: 60px; text-align: center;">#</th>
+                        <th>عنوان المعاملة</th>
+                        <th style="width: 180px;">تاريخ الانتهاء</th>
+                        <th style="width: 120px; text-align: center;">الحالة</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for t in transactions[:20] %}
                     <tr>
-                        <td><strong>{{ loop.index }}</strong></td>
-                        <td>{{ t.title }}</td>
-                        <td>{{ t.end_date }}</td>
-                        <td><span class="badge" style="background: #28a745; color: white;">✅ نشطة</span></td>
+                        <td style="text-align: center;"><strong>{{ loop.index }}</strong></td>
+                        <td><strong>{{ t.title }}</strong></td>
+                        <td>📅 {{ t.end_date }}</td>
+                        <td style="text-align: center;">
+                            <span class="badge badge-active">✅ نشطة</span>
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
+            {% if transactions|length > 20 %}
+            <p style="text-align: center; margin-top: 20px; color: #666; font-size: 14px;">
+                <em>يتم عرض أول 20 معاملة فقط • الإجمالي: {{ transactions|length }}</em>
+            </p>
+            {% endif %}
             {% else %}
-            <div class="empty">📭 لا توجد معاملات نشطة حالياً<br><small style="color: #ccc;">اضغط على "إضافة بيانات تجريبية" لإضافة معاملات تجريبية</small></div>
+            <div class="empty">
+                📭 لا توجد معاملات نشطة حالياً
+                <br><br>
+                <small style="color: #ccc; font-size: 16px;">
+                    اضغط على "إضافة بيانات تجريبية" لإنشاء معاملات تجريبية
+                </small>
+            </div>
             {% endif %}
         </div>
         
@@ -139,19 +338,19 @@ DASHBOARD_HTML = '''
             <table>
                 <thead>
                     <tr>
-                        <th style="width: 50px;">#</th>
+                        <th style="width: 60px; text-align: center;">#</th>
                         <th>الاسم الكامل</th>
-                        <th style="width: 180px;">رقم الجوال</th>
-                        <th style="width: 120px;">الصلاحية</th>
+                        <th style="width: 200px;">رقم الجوال</th>
+                        <th style="width: 150px; text-align: center;">الصلاحية</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for u in users %}
                     <tr>
-                        <td><strong>{{ loop.index }}</strong></td>
-                        <td>{{ u.full_name }}</td>
-                        <td>{{ u.phone_number }}</td>
-                        <td>
+                        <td style="text-align: center;"><strong>{{ loop.index }}</strong></td>
+                        <td><strong>{{ u.full_name }}</strong></td>
+                        <td>📱 {{ u.phone_number }}</td>
+                        <td style="text-align: center;">
                             {% if u.is_admin %}
                             <span class="badge badge-admin">👑 مسؤول</span>
                             {% else %}
@@ -163,18 +362,108 @@ DASHBOARD_HTML = '''
                 </tbody>
             </table>
             {% else %}
-            <div class="empty">👤 لا يوجد مستخدمين مسجلين<br><small style="color: #ccc;">ابدأ بتسجيل مسؤول النظام</small></div>
+            <div class="empty">
+                👤 لا يوجد مستخدمين مسجلين
+                <br><br>
+                <small style="color: #ccc; font-size: 16px;">
+                    ابدأ بإعداد حساب المسؤول الأول
+                </small>
+            </div>
             {% endif %}
         </div>
     </div>
     
     <div class="footer">
-        <p>🤖 نظام إدارة المعاملات والتنبيهات | {{ current_year }}</p>
-        <p style="font-size: 13px; margin-top: 10px; color: #ccc;">Powered by Flask & Python</p>
+        <p><strong>🤖 نظام إدارة المعاملات والتنبيهات</strong></p>
+        <p style="font-size: 14px; opacity: 0.8;">{{ current_year }} © جميع الحقوق محفوظة</p>
+        <p style="font-size: 13px; margin-top: 15px; opacity: 0.7;">
+            Powered by Flask • Python • Telegram Bot API
+        </p>
     </div>
 </body>
 </html>
 '''
+
+SUCCESS_PAGE = '''
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .box { 
+            background: white;
+            padding: 60px;
+            border-radius: 25px;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 600px;
+            animation: slideUp 0.5s ease;
+        }
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        h1 { 
+            color: #28a745;
+            margin-bottom: 25px;
+            font-size: 48px;
+        }
+        p { 
+            font-size: 20px;
+            margin: 18px 0;
+            color: #555;
+            line-height: 1.6;
+        }
+        .info {
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+            padding: 20px;
+            border-radius: 15px;
+            margin: 25px 0;
+        }
+        .info p {
+            margin: 10px 0;
+            font-size: 18px;
+        }
+        a { 
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 18px 50px;
+            text-decoration: none;
+            border-radius: 50px;
+            margin-top: 35px;
+            font-weight: bold;
+            font-size: 18px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+        a:hover { 
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.6);
+        }
+    </style>
+</head>
+<body>
+    <div class="box">
+        {{ content|safe }}
+    </div>
+</body>
+</html>
+'''
+
+# ==================== Routes ====================
 
 @app.route('/')
 def index():
@@ -194,9 +483,7 @@ def index():
             current_year=datetime.now().year
         )
     except Exception as e:
-        return f"<h1 style='text-align:center;color:red;padding:50px;'>❌ خطأ في الصفحة</h1><p style='text-align:center;'>{str(e)}</p>", 500
-
-# ==================== تصدير Excel ====================
+        return f"<h1 style='text-align:center;color:red;padding:50px;'>❌ خطأ: {str(e)}</h1>", 500
 
 @app.route('/export/<transaction_type>')
 def export_data(transaction_type):
@@ -235,17 +522,77 @@ def export_data(transaction_type):
             download_name=filename
         )
     except Exception as e:
-        return f"<h1 style='color:red;'>خطأ</h1><p>{str(e)}</p>", 500
+        return f"<h1 style='color:red;text-align:center;'>خطأ: {str(e)}</h1>", 500
 
-# ==================== إضافة بيانات تجريبية ====================
+@app.route('/setup-admin')
+def setup_admin():
+    """إعداد حساب المسؤول - عبدالرحمن سالم"""
+    try:
+        # البيانات المحددة مسبقاً
+        user_id = 218601139
+        phone = "+966599222345"
+        name = "عبدالرحمن سالم"
+        
+        # التحقق من وجود المستخدم
+        existing = db.get_user(user_id)
+        
+        if existing:
+            content = f'''
+                <h1>⚠️ الحساب موجود مسبقاً</h1>
+                <div class="info">
+                    <p><strong>الاسم:</strong> {existing['full_name']}</p>
+                    <p><strong>الجوال:</strong> {existing['phone_number']}</p>
+                    <p><strong>الصلاحية:</strong> {'👑 مسؤول' if existing['is_admin'] else '👤 مستخدم'}</p>
+                </div>
+                <p style="color: #666;">الحساب مسجل بالفعل في النظام</p>
+                <a href="/">العودة للرئيسية</a>
+            '''
+        else:
+            # إضافة المسؤول
+            success = db.add_user(user_id, phone, name, 1)
+            
+            if success:
+                content = f'''
+                    <h1>✅ تم إعداد الحساب بنجاح!</h1>
+                    <p style="font-size: 24px; margin: 25px 0;">مرحباً <strong>{name}</strong> 👋</p>
+                    <div class="info">
+                        <p><strong>📱 رقم الجوال:</strong> {phone}</p>
+                        <p><strong>🆔 معرف تليجرام:</strong> {user_id}</p>
+                        <p><strong>👑 الصلاحية:</strong> مسؤول النظام</p>
+                    </div>
+                    <p style="color: #28a745; font-weight: bold; font-size: 18px;">
+                        🎉 أنت الآن المسؤول الأول للنظام!
+                    </p>
+                    <p style="color: #666; margin-top: 20px;">
+                        يمكنك الآن استخدام البوت على تليجرام بهذا الرقم
+                    </p>
+                    <a href="/">الذهاب للرئيسية</a>
+                '''
+            else:
+                content = '''
+                    <h1>❌ فشل إعداد الحساب</h1>
+                    <p>حدث خطأ أثناء إنشاء الحساب</p>
+                    <p style="color: #999;">يرجى المحاولة مرة أخرى</p>
+                    <a href="/">رجوع</a>
+                '''
+        
+        return render_template_string(SUCCESS_PAGE, title="إعداد حساب المسؤول", content=content)
+        
+    except Exception as e:
+        content = f'''
+            <h1>❌ خطأ</h1>
+            <p>{str(e)}</p>
+            <a href="/">رجوع</a>
+        '''
+        return render_template_string(SUCCESS_PAGE, title="خطأ", content=content), 500
 
 @app.route('/add-sample-data')
 def add_sample_data():
-    """إضافة بيانات تجريبية"""
+    """إضافة البيانات التجريبية"""
     try:
-        # إضافة 10 مستخدمين
+        # إضافة 10 مستخدمين (مع عبدالرحمن سالم كمسؤول)
         users = [
-            (1001, "+966501234567", "أحمد محمد العلي", 1),
+            (218601139, "+966599222345", "عبدالرحمن سالم", 1),  # المسؤول الرئيسي
             (1002, "+966502345678", "فاطمة سعيد الأحمدي", 0),
             (1003, "+966503456789", "خالد عبدالله القحطاني", 0),
             (1004, "+966504567890", "نورة حسن المطيري", 0),
@@ -257,207 +604,99 @@ def add_sample_data():
             (1010, "+966500123456", "ريم إبراهيم السبيعي", 0),
         ]
         
+        users_added = 0
         for uid, phone, name, admin in users:
             try:
-                db.add_user(uid, phone, name, admin)
+                if db.add_user(uid, phone, name, admin):
+                    users_added += 1
             except:
-                pass  # تجاهل إذا كان موجود
+                pass
         
-        # إضافة 10 معاملات متنوعة
+        # إضافة 20 معاملة متنوعة
         transactions = [
-            (1, 1001, "عقد عمل - أحمد محمد العلي", {"الموظف": "أحمد محمد العلي", "المسمى": "مدير مبيعات"}, 90),
-            (1, 1002, "عقد عمل - فاطمة سعيد", {"الموظف": "فاطمة سعيد الأحمدي", "المسمى": "محاسبة"}, 120),
-            (2, 1003, "إجازة - خالد عبدالله", {"الموظف": "خالد عبدالله القحطاني", "البديل": "ماجد يوسف"}, 15),
-            (2, 1004, "إجازة - نورة حسن", {"الموظف": "نورة حسن المطيري", "البديل": "هند محمد"}, 25),
-            (3, 1005, "سيارة - م ن س 7890", {"اللوحة": "م ن س 7890", "VIN": "VIN12345"}, 45),
-            (3, 1006, "سيارة - ع ف ص 2345", {"اللوحة": "ع ف ص 2345", "VIN": "VIN67890"}, 60),
-            (4, 1007, "ترخيص تجاري - شركة النجاح", {"النوع": "سجل تجاري", "الجهة": "وزارة التجارة"}, 180),
-            (4, 1008, "ترخيص صحي - عيادة الصحة", {"النوع": "ترخيص صحي", "الجهة": "وزارة الصحة"}, 200),
-            (5, 1009, "قضية تجارية - رقم 2025/001", {"رقم_القضية": "2025/001", "البيان": "نزاع تجاري"}, 30),
-            (5, 1010, "قضية عمالية - رقم 2025/002", {"رقم_القضية": "2025/002", "البيان": "مطالبة مالية"}, 40),
+            # عقود عمل (5)
+            (1, 218601139, "عقد عمل - عبدالرحمن سالم", {"الموظف": "عبدالرحمن سالم", "المسمى": "مدير عام", "الراتب": "25000"}, 365),
+            (1, 1002, "عقد عمل - فاطمة سعيد", {"الموظف": "فاطمة سعيد الأحمدي", "المسمى": "محاسبة", "الراتب": "12000"}, 180),
+            (1, 1003, "عقد عمل - خالد عبدالله", {"الموظف": "خالد عبدالله القحطاني", "المسمى": "مهندس برمجيات", "الراتب": "18000"}, 240),
+            (1, 1004, "عقد عمل - نورة حسن", {"الموظف": "نورة حسن المطيري", "المسمى": "مديرة موارد بشرية", "الراتب": "16000"}, 200),
+            (1, 1005, "عقد عمل - سعد فهد", {"الموظف": "سعد فهد الدوسري", "المسمى": "مدير مشاريع", "الراتب": "20000"}, 300),
+            
+            # إجازات (5)
+            (2, 1002, "إجازة - فاطمة سعيد", {"الموظف": "فاطمة سعيد", "النوع": "سنوية", "البديل": "نورة حسن"}, 15),
+            (2, 1003, "إجازة - خالد عبدالله", {"الموظف": "خالد عبدالله", "النوع": "مرضية", "البديل": "ماجد يوسف"}, 7),
+            (2, 1006, "إجازة - مريم علي", {"الموظف": "مريم علي", "النوع": "طارئة", "البديل": "هند محمد"}, 3),
+            (2, 1007, "إجازة - عبدالعزيز راشد", {"الموظف": "عبدالعزيز راشد", "النوع": "سنوية", "البديل": "سعد فهد"}, 25),
+            (2, 1010, "إجازة - ريم إبراهيم", {"الموظف": "ريم إبراهيم", "النوع": "أمومة", "البديل": "فاطمة سعيد"}, 90),
+            
+            # سيارات (4)
+            (3, 218601139, "سيارة - أ ب ج 1234", {"اللوحة": "أ ب ج 1234", "النوع": "كامري 2023", "VIN": "VIN12345"}, 60),
+            (3, 1005, "سيارة - د هـ و 5678", {"اللوحة": "د هـ و 5678", "النوع": "يوكن 2022", "VIN": "VIN67890"}, 45),
+            (3, 1006, "سيارة - ز ح ط 9012", {"اللوحة": "ز ح ط 9012", "النوع": "أكورد 2024", "VIN": "VIN11223"}, 90),
+            (3, 1009, "سيارة - ي ك ل 3456", {"اللوحة": "ي ك ل 3456", "النوع": "هايلكس 2021", "VIN": "VIN44556"}, 30),
+            
+            # تراخيص (3)
+            (4, 218601139, "ترخيص - سجل تجاري رئيسي", {"النوع": "سجل تجاري", "الرقم": "1010123456", "الجهة": "وزارة التجارة"}, 180),
+            (4, 1004, "ترخيص - فرع جدة", {"النوع": "ترخيص فرع", "الرقم": "2020234567", "الجهة": "البلدية"}, 120),
+            (4, 1008, "ترخيص - شهادة صحية", {"النوع": "شهادة صحية", "الرقم": "3030345678", "الجهة": "وزارة الصحة"}, 90),
+            
+            # قضايا (3)
+            (5, 218601139, "قضية تجارية - 2025/001", {"رقم_القضية": "2025/001", "البيان": "نزاع تجاري مع مورد", "المحكمة": "المحكمة التجارية"}, 40),
+            (5, 1005, "قضية عمالية - 2025/002", {"رقم_القضية": "2025/002", "البيان": "مطالبة مالية موظف سابق", "المحكمة": "محكمة العمل"}, 25),
+            (5, 1007, "قضية مدنية - 2025/003", {"رقم_القضية": "2025/003", "البيان": "نزاع عقاري", "المحكمة": "المحكمة العامة"}, 50),
         ]
         
-        added_count = 0
+        trans_added = 0
         for type_id, user_id, title, data, days in transactions:
             try:
                 end_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d')
                 trans_id = db.add_transaction(type_id, user_id, title, data, end_date)
-                db.add_notification(trans_id, 7, [user_id])
-                added_count += 1
+                
+                # إضافة تنبيهات ذكية حسب عدد الأيام
+                if days <= 30:
+                    db.add_notification(trans_id, 3, [user_id, 218601139])
+                elif days <= 90:
+                    db.add_notification(trans_id, 7, [user_id, 218601139])
+                    db.add_notification(trans_id, 3, [user_id, 218601139])
+                else:
+                    db.add_notification(trans_id, 30, [user_id, 218601139])
+                    db.add_notification(trans_id, 7, [user_id, 218601139])
+                
+                trans_added += 1
             except:
                 pass
         
-        return f'''
-        <html dir="rtl">
-        <head><meta charset="UTF-8"><title>نجح!</title>
-        <style>
-            body {{ font-family: Arial; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }}
-            .box {{ background: white; padding: 60px; border-radius: 20px; text-align: center; box-shadow: 0 15px 50px rgba(0,0,0,0.4); max-width: 500px; }}
-            h1 {{ color: #28a745; margin-bottom: 25px; font-size: 42px; }}
-            p {{ font-size: 20px; margin: 15px 0; color: #555; }}
-            a {{ display: inline-block; background: #667eea; color: white; padding: 18px 45px; text-decoration: none; border-radius: 8px; margin-top: 35px; font-weight: bold; font-size: 18px; transition: all 0.3s; }}
-            a:hover {{ background: #764ba2; transform: translateY(-3px); box-shadow: 0 8px 20px rgba(0,0,0,0.3); }}
-        </style>
-        </head>
-        <body>
-            <div class="box">
-                <h1>✅ تم بنجاح!</h1>
-                <p><strong>تم إضافة:</strong></p>
-                <p>👥 {len(users)} مستخدمين</p>
-                <p>📋 {added_count} معاملات</p>
-                <a href="/">العودة للرئيسية</a>
+        content = f'''
+            <h1>🎉 تم بنجاح!</h1>
+            <p style="font-size: 22px; margin: 25px 0;">تم إضافة البيانات التجريبية بنجاح</p>
+            <div class="info">
+                <p><strong>👥 المستخدمين:</strong> {users_added} مستخدم</p>
+                <p><strong>📋 المعاملات:</strong> {trans_added} معاملة</p>
+                <p><strong>⏰ التنبيهات:</strong> تم إعدادها تلقائياً</p>
             </div>
-        </body>
-        </html>
+            <p style="color: #28a745; font-weight: bold; margin-top: 20px;">
+                ✅ النظام جاهز للاستخدام!
+            </p>
+            <p style="color: #666; font-size: 15px; margin-top: 15px;">
+                📱 يمكنك الآن استخدام البوت على تليجرام برقم: +966599222345
+            </p>
+            <a href="/">عرض البيانات</a>
         '''
+        
+        return render_template_string(SUCCESS_PAGE, title="إضافة بيانات تجريبية", content=content)
+        
     except Exception as e:
-        return f"<h1 style='color:red;text-align:center;'>خطأ</h1><p style='text-align:center;'>{str(e)}</p><a href='/' style='display:block;text-align:center;margin-top:20px;'>رجوع</a>", 500
-
-# ==================== تسجيل مسؤول ====================
-
-@app.route('/register-admin', methods=['GET', 'POST'])
-def register_admin():
-    """صفحة تسجيل المسؤول"""
-    if request.method == 'POST':
-        phone = request.form.get('phone', '').strip()
-        name = request.form.get('name', '').strip()
-        user_id = request.form.get('user_id', '999999').strip()
-        
-        if not phone or not name:
-            return "<h1 style='color:red;text-align:center;'>❌ يرجى إدخال جميع البيانات</h1><a href='/register-admin' style='display:block;text-align:center;'>رجوع</a>", 400
-        
-        try:
-            user_id = int(user_id)
-            success = db.add_user(user_id, phone, name, 1)
-            
-            if success:
-                return f'''
-                <html dir="rtl">
-                <head><meta charset="UTF-8"><title>نجح!</title>
-                <style>
-                    body {{ font-family: Arial; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }}
-                    .box {{ background: white; padding: 50px; border-radius: 15px; text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,0.3); }}
-                    h1 {{ color: #28a745; margin-bottom: 20px; }}
-                    a {{ display: inline-block; background: #667eea; color: white; padding: 15px 40px; text-decoration: none; border-radius: 8px; margin-top: 30px; font-weight: bold; }}
-                </style>
-                </head>
-                <body>
-                    <div class="box">
-                        <h1>✅ تم التسجيل بنجاح!</h1>
-                        <p style="font-size: 20px; margin: 15px 0;">مرحباً <strong>{name}</strong></p>
-                        <p>رقم الجوال: <strong>{phone}</strong></p>
-                        <p style="color: #667eea; font-weight: bold; margin-top: 20px;">👑 أنت الآن مسؤول النظام!</p>
-                        <a href="/">الذهاب للرئيسية</a>
-                    </div>
-                </body>
-                </html>
-                '''
-            else:
-                return "<h1 style='color:red;text-align:center;'>❌ فشل التسجيل - ربما الرقم مسجل مسبقاً</h1><a href='/register-admin' style='display:block;text-align:center;margin-top:20px;'>حاول مرة أخرى</a>", 400
-        except Exception as e:
-            return f"<h1 style='color:red;text-align:center;'>خطأ</h1><p style='text-align:center;'>{str(e)}</p><a href='/register-admin' style='display:block;text-align:center;'>رجوع</a>", 500
-    
-    # GET - عرض النموذج
-    return '''
-    <html dir="rtl">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>تسجيل مسؤول</title>
-        <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body {
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                min-height: 100vh;
-                padding: 20px;
-            }
-            .container {
-                background: white;
-                padding: 45px;
-                border-radius: 15px;
-                box-shadow: 0 10px 40px rgba(0,0,0,0.3);
-                max-width: 500px;
-                width: 100%;
-            }
-            h1 { color: #667eea; margin-bottom: 15px; text-align: center; font-size: 32px; }
-            p { color: #666; margin-bottom: 30px; text-align: center; font-size: 16px; }
-            .form-group { margin-bottom: 22px; }
-            label { display: block; margin-bottom: 10px; color: #333; font-weight: 600; font-size: 15px; }
-            input {
-                width: 100%;
-                padding: 14px;
-                border: 2px solid #ddd;
-                border-radius: 6px;
-                font-size: 16px;
-                transition: border-color 0.3s;
-            }
-            input:focus { outline: none; border-color: #667eea; }
-            button {
-                width: 100%;
-                padding: 16px;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                color: white;
-                border: none;
-                border-radius: 6px;
-                font-size: 18px;
-                font-weight: bold;
-                cursor: pointer;
-                transition: transform 0.2s;
-            }
-            button:hover { transform: translateY(-2px); }
-            .info {
-                background: #e3f2fd;
-                padding: 18px;
-                border-radius: 8px;
-                margin-top: 25px;
-                font-size: 14px;
-                color: #1976d2;
-                line-height: 1.6;
-            }
-            small { color: #999; font-size: 13px; display: block; margin-top: 8px; }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1>👑 تسجيل مسؤول النظام</h1>
-            <p>سجل بياناتك لتصبح مسؤول النظام</p>
-            
-            <form method="POST">
-                <div class="form-group">
-                    <label>رقم الجوال 📱</label>
-                    <input type="text" name="phone" placeholder="+966599222345" value="+966599222345" required>
-                </div>
-                
-                <div class="form-group">
-                    <label>الاسم الكامل 👤</label>
-                    <input type="text" name="name" placeholder="أدخل اسمك الكامل" required>
-                </div>
-                
-                <div class="form-group">
-                    <label>معرف تليجرام (اختياري) 🆔</label>
-                    <input type="number" name="user_id" placeholder="999999" value="999999">
-                    <small>سيتم تحديثه تلقائياً عند استخدام البوت</small>
-                </div>
-                
-                <button type="submit">✅ تسجيل كمسؤول</button>
-                
-                <div class="info">
-                    💡 <strong>ملاحظة:</strong> بعد التسجيل، يمكنك استخدام هذا الرقم للدخول إلى البوت على تليجرام (عندما يتم تفعيله)
-                </div>
-            </form>
-        </div>
-    </body>
-    </html>
-    '''
+        content = f'''
+            <h1>❌ خطأ</h1>
+            <p>{str(e)}</p>
+            <a href="/">رجوع</a>
+        '''
+        return render_template_string(SUCCESS_PAGE, title="خطأ", content=content), 500
 
 def run_web_app():
-    """تشغيل التطبيق"""
+    """تشغيل الموقع"""
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    print(f"   🌐 الموقع يعمل على: http://0.0.0.0:{port}")
+    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
 
 if __name__ == '__main__':
     run_web_app()
