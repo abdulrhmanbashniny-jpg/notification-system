@@ -1,7 +1,3 @@
-"""
-🚀 Supabase Database Engine - محرك قاعدة البيانات الاحترافي
-نظام شامل مع صلاحيات، audit logging، وأداء عالي
-"""
 import os
 import psycopg2
 from psycopg2.extras import RealDictCursor, execute_batch
