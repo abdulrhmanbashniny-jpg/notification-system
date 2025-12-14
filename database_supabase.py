@@ -1,7 +1,6 @@
 import os
 from flask import Flask, render_template_string, request, redirect, jsonify, session
 from datetime import datetime, timedelta
-from database_supabase import Database
 from ai_agent import AIAgent
 import secrets
 import json
