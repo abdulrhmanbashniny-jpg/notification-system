@@ -1,3 +1,4 @@
+from database_supabase import Database
 from flask import Flask, render_template_string, send_file, request, redirect
 from database import Database
 import pandas as pd
