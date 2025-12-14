@@ -2,7 +2,6 @@ from database_supabase import Database
 import threading
 import time
 from datetime import datetime, timedelta
-from database import Database
 import os
 import requests
 import logging
