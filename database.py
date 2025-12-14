@@ -9,10 +9,10 @@ class Database:
         self.conn.row_factory = sqlite3.Row
         self.cursor = self.conn.cursor()
         self.create_tables()
-
+    
     def create_tables(self):
         """إنشاء جداول قاعدة البيانات"""
-
+        
         # جدول أنواع المعاملات
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS transaction_types (
@@ -21,7 +21,7 @@ class Database:
                 icon TEXT
             )
         ''')
-
+        
         # جدول المستخدمين
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
@@ -32,7 +32,7 @@ class Database:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
-
+        
         # جدول المعاملات
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS transactions (
@@ -48,7 +48,7 @@ class Database:
                 FOREIGN KEY (user_id) REFERENCES users(user_id)
             )
         ''')
-
+        
         # جدول التنبيهات
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS notifications (
@@ -61,7 +61,7 @@ class Database:
                 FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id)
             )
         ''')
-
+        
         # إضافة أنواع المعاملات الافتراضية
         types = [
             (1, 'عقد عمل', '📝'),
@@ -70,7 +70,7 @@ class Database:
             (4, 'ترخيص', '📄'),
             (5, 'جلسة قضائية', '⚖️')
         ]
-
+        
         for type_id, name, icon in types:
             try:
                 self.cursor.execute('''
@@ -79,9 +79,9 @@ class Database:
                 ''', (type_id, name, icon))
             except:
                 pass
-
+        
         self.conn.commit()
-
+    
     def add_user(self, user_id, phone_number, full_name, is_admin=0):
         """إضافة مستخدم جديد"""
         try:
@@ -94,20 +94,20 @@ class Database:
         except Exception as e:
             print(f"خطأ في إضافة المستخدم: {e}")
             return False
-
+    
     def get_user(self, user_id):
         """جلب بيانات مستخدم"""
         try:
             row = self.cursor.execute('''
                 SELECT * FROM users WHERE user_id = ?
             ''', (user_id,)).fetchone()
-
+            
             if row:
                 return dict(row)
             return None
         except:
             return None
-
+    
     def get_all_users(self):
         """جلب جميع المستخدمين"""
         try:
@@ -115,7 +115,7 @@ class Database:
             return [dict(row) for row in rows]
         except:
             return []
-
+    
     def delete_user(self, user_id):
         """حذف مستخدم"""
         try:
@@ -124,24 +124,24 @@ class Database:
             return True
         except:
             return False
-
+    
     def add_transaction(self, transaction_type_id, user_id, title, data, end_date):
         """إضافة معاملة جديدة"""
         try:
             data_json = json.dumps(data, ensure_ascii=False) if isinstance(data, dict) else json.dumps({})
-
+            
             self.cursor.execute('''
                 INSERT INTO transactions (transaction_type_id, user_id, title, data, end_date, is_active)
                 VALUES (?, ?, ?, ?, ?, 1)
             ''', (transaction_type_id, user_id, title, data_json, end_date))
-
+            
             self.conn.commit()
             return self.cursor.lastrowid
         except Exception as e:
             print(f"خطأ في إضافة المعاملة: {e}")
             self.conn.rollback()
             return None
-
+    
     def update_transaction(self, transaction_id, title, end_date, data=None):
         """تحديث معاملة"""
         try:
@@ -158,20 +158,20 @@ class Database:
                     SET title = ?, end_date = ?
                     WHERE transaction_id = ?
                 ''', (title, end_date, transaction_id))
-
+            
             self.conn.commit()
             return True
         except Exception as e:
             print(f"خطأ في تحديث المعاملة: {e}")
             return False
-
+    
     def get_transaction(self, transaction_id):
         """جلب معاملة واحدة"""
         try:
             row = self.cursor.execute('''
                 SELECT * FROM transactions WHERE transaction_id = ?
             ''', (transaction_id,)).fetchone()
-
+            
             if row:
                 trans = dict(row)
                 if trans.get('data'):
@@ -183,7 +183,7 @@ class Database:
             return None
         except:
             return None
-
+    
     def get_active_transactions(self, user_id=None):
         """جلب المعاملات النشطة"""
         try:
@@ -199,7 +199,7 @@ class Database:
                     WHERE is_active = 1
                     ORDER BY end_date
                 ''').fetchall()
-
+            
             transactions = []
             for row in rows:
                 trans = dict(row)
@@ -209,12 +209,12 @@ class Database:
                     except:
                         trans['data'] = {}
                 transactions.append(trans)
-
+            
             return transactions
         except Exception as e:
             print(f"خطأ في جلب المعاملات: {e}")
             return []
-
+    
     def delete_transaction(self, transaction_id):
         """حذف معاملة"""
         try:
@@ -224,7 +224,7 @@ class Database:
             return True
         except:
             return False
-
+    
     def add_notification(self, transaction_id, days_before, recipients):
         """إضافة تنبيه"""
         try:
@@ -237,7 +237,7 @@ class Database:
             return True
         except:
             return False
-
+    
     def get_pending_notifications(self):
         """جلب التنبيهات المعلقة"""
         try:
@@ -247,7 +247,7 @@ class Database:
                 JOIN transactions t ON n.transaction_id = t.transaction_id
                 WHERE t.is_active = 1 AND n.sent = 0
             ''').fetchall()
-
+            
             notifications = []
             for row in rows:
                 notif = dict(row)
@@ -257,11 +257,11 @@ class Database:
                     except:
                         notif['recipients'] = []
                 notifications.append(notif)
-
+            
             return notifications
         except:
             return []
-
+    
     def mark_notification_sent(self, notification_id):
         """تعليم تنبيه كمُرسل"""
         try:
@@ -274,7 +274,7 @@ class Database:
             return True
         except:
             return False
-
+    
     def get_transaction_types(self):
         """جلب أنواع المعاملات"""
         try:
@@ -282,7 +282,7 @@ class Database:
             return [dict(row) for row in rows]
         except:
             return []
-
+    
     def close(self):
         """إغلاق الاتصال"""
         self.conn.close()
