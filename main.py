@@ -1,70 +1,89 @@
 import os
+import asyncio
 import logging
-import threading
+from threading import Thread
+from database_supabase import Database
+from bot import create_bot
+from web_app import app
+from notifications import NotificationScheduler
 
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+# إعداد السجلات
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
-def run_bot_thread():
-    try:
-        from bot import run_bot
-        logger.info("🤖 Starting bot...")
-        run_bot()
-    except Exception as e:
-        logger.error(f"❌ Bot failed: {e}")
+# المتغيرات البيئية
+BOT_TOKEN = os.getenv('BOT_TOKEN')
+DATABASE_URL = os.getenv('DATABASE_URL')
+PORT = int(os.getenv('PORT', 10000))
 
-def run_notifications_thread():
+def run_web_app():
+    """تشغيل تطبيق الويب"""
+    logger.info(f"🌐 بدء تشغيل موقع الويب على المنفذ {PORT}")
+    app.run(host='0.0.0.0', port=PORT, debug=False)
+
+async def run_notification_system(bot_token, db):
     """تشغيل نظام التنبيهات"""
-    try:
-        from notifications import NotificationScheduler
-        
-        scheduler = NotificationScheduler(check_interval=3600)  # كل ساعة
-        logger.info("🔔 Starting notifications...")
-        scheduler.start()
-        
-    except Exception as e:
-        logger.error(f"❌ Notifications failed: {e}")
-
-def run_web_thread():
-    try:
-        from web_app import run_web
-        logger.info("🌐 Starting web...")
-        run_web()
-    except Exception as e:
-        logger.error(f"❌ Web failed: {e}")
-        raise
+    scheduler = NotificationScheduler(bot_token, db)
+    await scheduler.start()
 
 def main():
-    logger.info("="*60)
-    logger.info("🚀 Transactions System - Starting")
-    logger.info("="*60)
+    """النقطة الرئيسية لتشغيل النظام"""
+    logger.info("=" * 60)
+    logger.info("🚀 بدء تشغيل نظام إدارة المعاملات v1.0.0")
+    logger.info("=" * 60)
     
-    required_vars = ['BOT_TOKEN', 'DATABASE_URL']
-    missing = [v for v in required_vars if not os.environ.get(v)]
-    
-    if missing:
-        logger.error(f"❌ Missing: {', '.join(missing)}")
+    # التحقق من المتغيرات البيئية
+    if not BOT_TOKEN:
+        logger.error("❌ BOT_TOKEN غير موجود في المتغيرات البيئية")
         return
     
-    logger.info("✅ All environment variables present")
+    if not DATABASE_URL:
+        logger.error("❌ DATABASE_URL غير موجود في المتغيرات البيئية")
+        return
     
-    # Start bot in separate thread
-    bot_thread = threading.Thread(target=run_bot_thread, daemon=True, name="BotThread")
-    bot_thread.start()
-    logger.info("✅ Bot thread started")
+    # إنشاء اتصال قاعدة البيانات
+    logger.info("📊 الاتصال بقاعدة البيانات...")
+    db = Database(DATABASE_URL)
     
-    # Start notifications in separate thread
-    notifications_thread = threading.Thread(target=run_notifications_thread, daemon=True, name="NotificationsThread")
-    notifications_thread.start()
-    logger.info("✅ Notifications thread started")
+    # التحقق من الاتصال
+    if not db.check_connection():
+        logger.error("❌ فشل الاتصال بقاعدة البيانات")
+        return
     
-    # Start web in main thread
-    logger.info("✅ Web starting in main thread")
-    logger.info("="*60)
-    logger.info("🎉 All systems operational!")
-    logger.info("="*60)
+    logger.info("✅ تم الاتصال بقاعدة البيانات بنجاح")
     
-    run_web_thread()
+    # تشغيل موقع الويب في خيط منفصل
+    logger.info("🌐 تشغيل موقع الويب...")
+    web_thread = Thread(target=run_web_app, daemon=True)
+    web_thread.start()
+    
+    # تشغيل نظام التنبيهات في خيط منفصل
+    logger.info("🔔 تشغيل نظام التنبيهات...")
+    async def notification_task():
+        await run_notification_system(BOT_TOKEN, db)
+    
+    notification_thread = Thread(
+        target=lambda: asyncio.run(notification_task()), 
+        daemon=True
+    )
+    notification_thread.start()
+    
+    # تشغيل البوت (blocking - يعمل في الخيط الرئيسي)
+    logger.info("🤖 تشغيل بوت تيليجرام...")
+    bot = create_bot(BOT_TOKEN, db)
+    
+    try:
+        bot.run()
+    except KeyboardInterrupt:
+        logger.info("⚠️ تم إيقاف البوت يدوياً")
+    except Exception as e:
+        logger.error(f"❌ خطأ في تشغيل البوت: {e}")
+    finally:
+        db.close()
+        logger.info("👋 تم إيقاف النظام")
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
