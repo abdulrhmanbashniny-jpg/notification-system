@@ -1,11 +1,5 @@
-# ==================== Core ====================
 python-telegram-bot==20.7
 Flask==3.0.0
 psycopg2-binary==2.9.9
 requests==2.31.0
-
-# ==================== Optional (DeepSeek) ====================
-openai==1.6.1
-
-# ==================== Utilities ====================
 python-dotenv==1.0.0
