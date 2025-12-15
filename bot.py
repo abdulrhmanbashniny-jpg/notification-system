@@ -625,3 +625,4 @@ v1.0.0
             else:
                 await query.edit_message_text("❌ حدث خطأ أثناء الحذف.")
         else:
+             pass  # مؤقت - سيتم إضافة الكود لاحقاً
