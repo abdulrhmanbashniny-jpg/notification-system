@@ -13,6 +13,18 @@ def run_bot_thread():
     except Exception as e:
         logger.error(f"❌ Bot failed: {e}")
 
+def run_notifications_thread():
+    """تشغيل نظام التنبيهات"""
+    try:
+        from notifications import NotificationScheduler
+        
+        scheduler = NotificationScheduler(check_interval=3600)  # كل ساعة
+        logger.info("🔔 Starting notifications...")
+        scheduler.start()
+        
+    except Exception as e:
+        logger.error(f"❌ Notifications failed: {e}")
+
 def run_web_thread():
     try:
         from web_app import run_web
@@ -40,6 +52,11 @@ def main():
     bot_thread = threading.Thread(target=run_bot_thread, daemon=True, name="BotThread")
     bot_thread.start()
     logger.info("✅ Bot thread started")
+    
+    # Start notifications in separate thread
+    notifications_thread = threading.Thread(target=run_notifications_thread, daemon=True, name="NotificationsThread")
+    notifications_thread.start()
+    logger.info("✅ Notifications thread started")
     
     # Start web in main thread
     logger.info("✅ Web starting in main thread")
