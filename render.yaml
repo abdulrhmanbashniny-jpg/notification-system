@@ -7,8 +7,3 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
-      - key: BOT_TOKEN
-        sync: false
-      - key: DATABASE_URL
-        sync: false
-    # حذفنا healthCheckPath مؤقتاً
