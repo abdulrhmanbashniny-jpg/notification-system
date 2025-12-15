@@ -1,89 +1,74 @@
 import os
-import asyncio
+import threading
 import logging
-from threading import Thread
+from dotenv import load_dotenv
 from database_supabase import Database
-from bot import create_bot
-from web_app import app
-from notifications import NotificationScheduler
+from bot import TransactionBot
+from notifications import NotificationSystem
+from web_app import run_web
 
-# إعداد السجلات
+# تحميل المتغيرات من .env
+load_dotenv()
+
+# إعداد Logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-logger = logging.getLogger(__name__)
-
-# المتغيرات البيئية
-BOT_TOKEN = os.getenv('BOT_TOKEN')
-DATABASE_URL = os.getenv('DATABASE_URL')
-PORT = int(os.getenv('PORT', 10000))
-
-def run_web_app():
-    """تشغيل تطبيق الويب"""
-    logger.info(f"🌐 بدء تشغيل موقع الويب على المنفذ {PORT}")
-    app.run(host='0.0.0.0', port=PORT, debug=False)
-
-async def run_notification_system(bot_token, db):
-    """تشغيل نظام التنبيهات"""
-    scheduler = NotificationScheduler(bot_token, db)
-    await scheduler.start()
 
 def main():
-    """النقطة الرئيسية لتشغيل النظام"""
-    logger.info("=" * 60)
-    logger.info("🚀 بدء تشغيل نظام إدارة المعاملات v1.0.0")
-    logger.info("=" * 60)
-    
-    # التحقق من المتغيرات البيئية
-    if not BOT_TOKEN:
-        logger.error("❌ BOT_TOKEN غير موجود في المتغيرات البيئية")
-        return
-    
-    if not DATABASE_URL:
-        logger.error("❌ DATABASE_URL غير موجود في المتغيرات البيئية")
-        return
-    
-    # إنشاء اتصال قاعدة البيانات
-    logger.info("📊 الاتصال بقاعدة البيانات...")
-    db = Database(DATABASE_URL)
-    
-    # التحقق من الاتصال
-    if not db.check_connection():
-        logger.error("❌ فشل الاتصال بقاعدة البيانات")
-        return
-    
-    logger.info("✅ تم الاتصال بقاعدة البيانات بنجاح")
-    
-    # تشغيل موقع الويب في خيط منفصل
-    logger.info("🌐 تشغيل موقع الويب...")
-    web_thread = Thread(target=run_web_app, daemon=True)
-    web_thread.start()
-    
-    # تشغيل نظام التنبيهات في خيط منفصل
-    logger.info("🔔 تشغيل نظام التنبيهات...")
-    async def notification_task():
-        await run_notification_system(BOT_TOKEN, db)
-    
-    notification_thread = Thread(
-        target=lambda: asyncio.run(notification_task()), 
-        daemon=True
-    )
-    notification_thread.start()
-    
-    # تشغيل البوت (blocking - يعمل في الخيط الرئيسي)
-    logger.info("🤖 تشغيل بوت تيليجرام...")
-    bot = create_bot(BOT_TOKEN, db)
-    
+    """
+    نقطة البداية الرئيسية للتطبيق
+    يشغل 3 مكونات بالتوازي:
+    1. Telegram Bot (في Thread منفصل)
+    2. Notification System (في Thread منفصل)
+    3. Web Server (في Main Thread)
+    """
     try:
-        bot.run()
-    except KeyboardInterrupt:
-        logger.info("⚠️ تم إيقاف البوت يدوياً")
+        print("🚀 Starting application...")
+        
+        # 1. إنشاء قاعدة البيانات
+        db = Database()
+        print("✅ Database initialized")
+        
+        # 2. إنشاء البوت
+        bot_token = os.getenv('BOT_TOKEN')
+        if not bot_token:
+            raise ValueError("BOT_TOKEN not found in environment variables")
+        
+        bot = TransactionBot(db)
+        print("✅ Bot initialized")
+        
+        # 3. إنشاء نظام الإشعارات
+        notifier = NotificationSystem(db, bot_token)
+        print("✅ Notification system initialized")
+        
+        # 4. تشغيل البوت في Thread منفصل
+        bot_thread = threading.Thread(
+            target=bot.run,
+            daemon=True,
+            name="BotThread"
+        )
+        bot_thread.start()
+        print("✅ Bot thread started")
+        
+        # 5. تشغيل نظام الإشعارات في Thread منفصل
+        notif_thread = threading.Thread(
+            target=notifier.start,
+            daemon=True,
+            name="NotificationThread"
+        )
+        notif_thread.start()
+        print("✅ Notifications thread started")
+        
+        # 6. تشغيل Web Server في Main Thread
+        # هذا يبقي البرنامج يعمل ويسمح لـ Render بمراقبة الـ Port
+        print("✅ Web starting in main thread")
+        run_web()
+        
     except Exception as e:
-        logger.error(f"❌ خطأ في تشغيل البوت: {e}")
-    finally:
-        db.close()
-        logger.info("👋 تم إيقاف النظام")
+        logging.error(f"❌ Error in main: {e}", exc_info=True)
+        raise
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
