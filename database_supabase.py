@@ -1,437 +1,181 @@
-"""
-🚀 Supabase Database Engine - محرك قاعدة البيانات
-"""
-import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
-import json
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class Database:
-    """محرك قاعدة البيانات الاحترافي"""
+    def __init__(self, connection_string):
+        self.connection_string = connection_string
+        self.conn = None
     
-    def __init__(self):
-        self.connection_string = os.environ.get('DATABASE_URL')
-        if not self.connection_string:
-            raise Exception("DATABASE_URL مفقود")
-        
-        if self.connection_string.startswith('postgres://'):
-            self.connection_string = self.connection_string.replace('postgres://', 'postgresql://', 1)
-        
-        logger.info("✅ Database initialized")
-    
-    def get_connection(self):
+    def connect(self):
         """إنشاء اتصال بقاعدة البيانات"""
-        return psycopg2.connect(self.connection_string, connect_timeout=10)
+        try:
+            if not self.conn or self.conn.closed:
+                self.conn = psycopg2.connect(self.connection_string)
+            return self.conn
+        except Exception as e:
+            logger.error(f"خطأ في الاتصال بقاعدة البيانات: {e}")
+            raise
+    
+    def check_connection(self):
+        """التحقق من الاتصال بقاعدة البيانات"""
+        try:
+            conn = self.connect()
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+            return True
+        except Exception as e:
+            logger.error(f"فشل الاتصال بقاعدة البيانات: {e}")
+            return False
     
     def execute_query(self, query, params=None, fetch=True):
-        """تنفيذ استعلام"""
-        conn = self.get_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        """تنفيذ استعلام SQL"""
         try:
-            cursor.execute(query, params)
-            if fetch:
-                return cursor.fetchall()
-            else:
-                conn.commit()
-                return cursor.rowcount
+            conn = self.connect()
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(query, params)
+                if fetch:
+                    result = cur.fetchall()
+                    return result
+                else:
+                    conn.commit()
+                    return True
         except Exception as e:
-            conn.rollback()
-            logger.error(f"Query error: {e}")
-            raise
-        finally:
-            cursor.close()
-            conn.close()
+            logger.error(f"خطأ في تنفيذ الاستعلام: {e}")
+            if self.conn:
+                self.conn.rollback()
+            return None if fetch else False
     
-    # ==================== المستخدمين ====================
+    # ==================== المستخدمون ====================
     
     def get_user(self, user_id):
         """جلب معلومات مستخدم"""
-        query = """
-            SELECT u.*,
-                   (SELECT COUNT(*) FROM transactions 
-                    WHERE user_id = u.user_id AND is_active = true) as total_transactions,
-                   (SELECT COUNT(*) FROM transactions 
-                    WHERE user_id = u.user_id AND is_active = true 
-                    AND DATE(end_date) - CURRENT_DATE <= 3) as critical_count
-            FROM users u
-            WHERE u.user_id = %s
-        """
+        query = "SELECT * FROM users WHERE user_id = %s"
         result = self.execute_query(query, (user_id,))
         return result[0] if result else None
     
-    def get_all_users(self, active_only=True):
-        """جلب جميع المستخدمين"""
-        query = "SELECT * FROM users WHERE 1=1"
-        if active_only:
-            query += " AND is_active = true"
-        query += " ORDER BY full_name"
-        return self.execute_query(query)
-    
-    def add_user(self, user_id, phone_number, full_name, role='user', 
-                 department=None, email=None, telegram_username=None):
-        """إضافة أو تحديث مستخدم"""
+    def add_user(self, user_id, full_name, telegram_username=None, phone_number=None, 
+                 email=None, role='user', department=None):
+        """إضافة مستخدم جديد"""
         query = """
-            INSERT INTO users (user_id, phone_number, full_name, role, department, email, telegram_username)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (user_id) 
-            DO UPDATE SET 
-                full_name = EXCLUDED.full_name,
-                telegram_username = EXCLUDED.telegram_username,
-                last_active = CURRENT_TIMESTAMP
+            INSERT INTO users (user_id, full_name, telegram_username, phone_number, 
+                             email, role, department, is_active, created_at, last_active)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, true, NOW(), NOW())
+            ON CONFLICT (user_id) DO UPDATE 
+            SET last_active = NOW()
+            RETURNING user_id
         """
-        try:
-            self.execute_query(query, (user_id, phone_number, full_name, role, 
-                                      department, email, telegram_username), fetch=False)
-            logger.info(f"✅ User saved: {full_name}")
-            return True
-        except Exception as e:
-            logger.error(f"❌ Failed to save user: {e}")
-            return False
+        result = self.execute_query(
+            query, 
+            (user_id, full_name, telegram_username, phone_number, email, role, department),
+            fetch=True
+        )
+        return result[0]['user_id'] if result else None
+    
+    def update_user_activity(self, user_id):
+        """تحديث آخر نشاط للمستخدم"""
+        query = "UPDATE users SET last_active = NOW() WHERE user_id = %s"
+        return self.execute_query(query, (user_id,), fetch=False)
     
     # ==================== أنواع المعاملات ====================
     
     def get_transaction_types(self, level=None, parent_id=None):
         """جلب أنواع المعاملات"""
-        query = "SELECT * FROM transaction_types WHERE is_active = true"
-        params = []
-        
-        if level:
-            query += " AND level = %s"
-            params.append(level)
-        
         if parent_id is not None:
-            query += " AND parent_id = %s"
-            params.append(parent_id)
+            query = """
+                SELECT * FROM transaction_types 
+                WHERE parent_id = %s AND is_active = true
+                ORDER BY name
+            """
+            params = (parent_id,)
+        elif level is not None:
+            query = """
+                SELECT * FROM transaction_types 
+                WHERE level = %s AND is_active = true
+                ORDER BY name
+            """
+            params = (level,)
+        else:
+            query = """
+                SELECT * FROM transaction_types 
+                WHERE is_active = true
+                ORDER BY level, name
+            """
+            params = None
         
-        query += " ORDER BY level, id"
-        return self.execute_query(query, tuple(params) if params else None)
+        return self.execute_query(query, params) or []
     
-    def get_main_types(self):
-        """جلب الأنواع الرئيسية (Level 1)"""
-        return self.get_transaction_types(level=1)
-    
-    def get_subtypes(self, parent_id):
-        """جلب التفريعات لنوع معين"""
-        return self.get_transaction_types(parent_id=parent_id)
+    def get_transaction_type_name(self, type_id):
+        """جلب اسم نوع المعاملة"""
+        query = "SELECT name FROM transaction_types WHERE id = %s"
+        result = self.execute_query(query, (type_id,))
+        return result[0]['name'] if result else 'غير معروف'
     
     # ==================== المعاملات ====================
     
-    def add_transaction(self, transaction_type_id, user_id, title, end_date, 
-                       responsible_person_id=None, reminder_recipients=None, 
-                       description=None, priority='normal', data=None, start_date=None):
-        """إضافة معاملة جديدة مع إنشاء تنبيهات تلقائية"""
-        
-        recipients = reminder_recipients or []
-        data_json = json.dumps(data) if data else '{}'
+    def add_transaction(self, transaction_type_id, user_id, title, description='',
+                       start_date=None, end_date=None, priority='normal', 
+                       responsible_person_id=None, data=None):
+        """إضافة معاملة جديدة"""
+        if start_date is None:
+            start_date = datetime.now().date()
         
         query = """
             INSERT INTO transactions (
-                transaction_type_id, user_id, responsible_person_id,
-                title, description, data, start_date, end_date,
-                reminder_recipients, priority
+                transaction_type_id, user_id, responsible_person_id, title, 
+                description, data, start_date, end_date, priority, 
+                status, is_active, created_at, updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', true, NOW(), NOW())
             RETURNING transaction_id
         """
         
-        conn = self.get_connection()
-        cursor = conn.cursor()
+        result = self.execute_query(
+            query,
+            (transaction_type_id, user_id, responsible_person_id or user_id, 
+             title, description, data, start_date, end_date, priority),
+            fetch=True
+        )
         
-        try:
-            cursor.execute(query, (
-                transaction_type_id, user_id, responsible_person_id,
-                title, description, data_json, start_date, end_date,
-                recipients, priority
-            ))
-            
-            transaction_id = cursor.fetchone()[0]
-            conn.commit()
-            
-            # إنشاء تنبيهات تلقائياً
-            if recipients:
-                self._create_auto_notifications(conn, transaction_id, recipients)
-            
-            logger.info(f"✅ Created transaction #{transaction_id}: {title}")
+        if result:
+            transaction_id = result[0]['transaction_id']
+            # إنشاء التنبيهات التلقائية
+            self.create_notifications_for_transaction(transaction_id, end_date, [user_id])
             return transaction_id
-            
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"❌ Failed to create transaction: {e}")
-            return None
-        finally:
-            cursor.close()
-            conn.close()
-    
-    def _create_auto_notifications(self, conn, transaction_id, recipients):
-        """إنشاء تنبيهات تلقائية (30، 15، 7، 3، 0 يوم)"""
-        
-        days_before_list = [30, 15, 7, 3, 0]
-        
-        query = """
-            INSERT INTO notifications (transaction_id, days_before, recipients, notification_type)
-            VALUES (%s, %s, %s, 'scheduled')
-        """
-        
-        cursor = conn.cursor()
-        try:
-            for days in days_before_list:
-                cursor.execute(query, (transaction_id, days, recipients))
-            conn.commit()
-            logger.info(f"✅ Created {len(days_before_list)} notifications for transaction #{transaction_id}")
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"❌ Failed to create auto notifications: {e}")
-        finally:
-            cursor.close()
-    
-    def get_active_transactions(self):
-        """جلب جميع المعاملات النشطة"""
-        query = """
-            SELECT t.*,
-                   tt.name as type_name,
-                   tt.icon as type_icon,
-                   u.full_name as user_name,
-                   r.full_name as responsible_person_name,
-                   DATE(t.end_date) - CURRENT_DATE as days_left
-            FROM transactions t
-            JOIN transaction_types tt ON t.transaction_type_id = tt.id
-            JOIN users u ON t.user_id = u.user_id
-            LEFT JOIN users r ON t.responsible_person_id = r.user_id
-            WHERE t.is_active = true
-            ORDER BY t.end_date ASC
-        """
-        
-        result = self.execute_query(query)
-        
-        # تحويل JSONB و arrays
-        for trans in result:
-            if trans.get('data'):
-                trans['data'] = dict(trans['data'])
-            if trans.get('reminder_recipients'):
-                trans['reminder_recipients'] = list(trans['reminder_recipients'])
-        
-        return result
+        return None
     
     def get_transaction(self, transaction_id):
-        """جلب معاملة واحدة بالتفصيل"""
+        """جلب معلومات معاملة"""
         query = """
-            SELECT t.*,
-                   tt.name as type_name,
-                   tt.icon as type_icon,
+            SELECT t.*, tt.name as type_name, tt.icon,
                    u.full_name as user_name,
-                   r.full_name as responsible_person_name,
-                   DATE(t.end_date) - CURRENT_DATE as days_left
+                   r.full_name as responsible_name
             FROM transactions t
-            JOIN transaction_types tt ON t.transaction_type_id = tt.id
-            JOIN users u ON t.user_id = u.user_id
+            LEFT JOIN transaction_types tt ON t.transaction_type_id = tt.id
+            LEFT JOIN users u ON t.user_id = u.user_id
             LEFT JOIN users r ON t.responsible_person_id = r.user_id
             WHERE t.transaction_id = %s
         """
-        
         result = self.execute_query(query, (transaction_id,))
-        
-        if result:
-            trans = result[0]
-            if trans.get('data'):
-                trans['data'] = dict(trans['data'])
-            if trans.get('reminder_recipients'):
-                trans['reminder_recipients'] = list(trans['reminder_recipients'])
-            return trans
-        
-        return None
+        return result[0] if result else None
     
-    def get_transactions_by_role(self, user_id):
-        """جلب معاملات حسب صلاحية المستخدم"""
+    def get_user_transactions(self, user_id, status=None, transaction_type_id=None, 
+                             priority=None, limit=None):
+        """جلب معاملات المستخدم"""
         query = """
-            SELECT t.*,
-                   tt.name as type_name,
-                   tt.icon as type_icon,
-                   u.full_name as user_name,
-                   DATE(t.end_date) - CURRENT_DATE as days_left
+            SELECT t.*, tt.name as type_name, tt.icon
             FROM transactions t
-            JOIN transaction_types tt ON t.transaction_type_id = tt.id
-            JOIN users u ON t.user_id = u.user_id
-            WHERE t.is_active = true 
-              AND (t.user_id = %s OR %s = ANY(t.reminder_recipients))
-            ORDER BY t.end_date ASC
+            LEFT JOIN transaction_types tt ON t.transaction_type_id = tt.id
+            WHERE t.user_id = %s AND t.is_active = true
         """
+        params = [user_id]
         
-        result = self.execute_query(query, (user_id, user_id))
-        
-        for trans in result:
-            if trans.get('data'):
-                trans['data'] = dict(trans['data'])
-            if trans.get('reminder_recipients'):
-                trans['reminder_recipients'] = list(trans['reminder_recipients'])
-        
-        return result
-    
-    def update_transaction(self, transaction_id, **kwargs):
-        """تحديث معاملة"""
-        allowed_fields = ['title', 'description', 'end_date', 'responsible_person_id', 
-                         'reminder_recipients', 'priority', 'status']
-        
-        updates = []
-        values = []
-        
-        for key, value in kwargs.items():
-            if key in allowed_fields:
-                updates.append(f"{key} = %s")
-                values.append(value)
-        
-        if not updates:
-            return False
-        
-        values.append(transaction_id)
-        query = f"UPDATE transactions SET {', '.join(updates)} WHERE transaction_id = %s"
-        
-        try:
-            self.execute_query(query, tuple(values), fetch=False)
-            logger.info(f"✅ Updated transaction #{transaction_id}")
-            return True
-        except Exception as e:
-            logger.error(f"❌ Failed to update transaction: {e}")
-            return False
-    
-    def delete_transaction(self, transaction_id):
-        """حذف معاملة (soft delete)"""
-        query = "UPDATE transactions SET is_active = false WHERE transaction_id = %s"
-        try:
-            self.execute_query(query, (transaction_id,), fetch=False)
-            logger.info(f"✅ Deleted transaction #{transaction_id}")
-            return True
-        except:
-            return False
-    
-    # ==================== الإحصائيات ====================
-    
-    def get_stats(self, user_id=None):
-        """جلب إحصائيات شاملة"""
-        
-        # إذا كان هناك user_id محدد، فقط معاملاته
-        base_filters = "WHERE is_active = true"
-        params = []
-        
-        if user_id:
-            base_filters += " AND (user_id = %s OR %s = ANY(reminder_recipients))"
-            params = [user_id, user_id]
-        
-        query = f"""
-            SELECT 
-                COUNT(*) as total,
-                COUNT(CASE WHEN DATE(end_date) - CURRENT_DATE <= 3 THEN 1 END) as critical,
-                COUNT(CASE WHEN DATE(end_date) - CURRENT_DATE BETWEEN 4 AND 7 THEN 1 END) as warning,
-                COUNT(CASE WHEN DATE(end_date) - CURRENT_DATE BETWEEN 8 AND 30 THEN 1 END) as upcoming,
-                COUNT(CASE WHEN DATE(end_date) - CURRENT_DATE > 30 THEN 1 END) as safe
-            FROM transactions {base_filters}
-        """
-        
-        result = self.execute_query(query, tuple(params) if params else None)[0]
-        return dict(result)
-    
-    # ==================== التنبيهات ====================
-    
-    def get_pending_notifications(self):
-        """جلب التنبيهات المعلقة التي يجب إرسالها"""
-        query = """
-            SELECT n.*,
-                   t.title,
-                   t.end_date,
-                   t.priority,
-                   tt.name as type_name,
-                   tt.icon as type_icon,
-                   u.full_name as user_name
-            FROM notifications n
-            JOIN transactions t ON n.transaction_id = t.transaction_id
-            JOIN transaction_types tt ON t.transaction_type_id = tt.id
-            JOIN users u ON t.user_id = u.user_id
-            WHERE n.sent = false
-              AND t.is_active = true
-              AND t.status = 'active'
-              AND DATE(t.end_date) - CURRENT_DATE = n.days_before
-            ORDER BY t.priority DESC, t.end_date ASC
-        """
-        
-        result = self.execute_query(query)
-        
-        # تحويل arrays
-        for notif in result:
-            if notif.get('recipients'):
-                notif['recipients'] = list(notif['recipients'])
-        
-        return result
-    
-    def mark_notification_sent(self, notification_id):
-        """تعليم تنبيه كمُرسل"""
-        query = """
-            UPDATE notifications 
-            SET sent = true, sent_at = CURRENT_TIMESTAMP 
-            WHERE notification_id = %s
-        """
-        try:
-            self.execute_query(query, (notification_id,), fetch=False)
-            logger.info(f"✅ Notification #{notification_id} marked as sent")
-            return True
-        except Exception as e:
-            logger.error(f"❌ Failed to mark notification: {e}")
-            return False
-    
-    def send_immediate_notification(self, transaction_id, recipients, message, sent_by):
-        """إرسال تنبيه فوري خارج الجدولة"""
-        query = """
-            INSERT INTO notifications (
-                transaction_id, days_before, recipients, message,
-                notification_type, sent, sent_at
-            )
-            VALUES (%s, -1, %s, %s, 'immediate', true, CURRENT_TIMESTAMP)
-            RETURNING notification_id
-        """
-        
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        try:
-            cursor.execute(query, (transaction_id, recipients, message))
-            notification_id = cursor.fetchone()[0]
-            conn.commit()
-            logger.info(f"✅ Immediate notification #{notification_id} sent")
-            return notification_id
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"❌ Failed to send immediate notification: {e}")
-            return None
-        finally:
-            cursor.close()
-            conn.close()
-    
-    # ==================== البحث والفلترة ====================
-    
-    def search_transactions(self, search_term=None, transaction_type_id=None, 
-                          priority=None, user_id=None, status='active'):
-        """البحث عن معاملات بفلترة متقدمة"""
-        query = """
-            SELECT t.*,
-                   tt.name as type_name,
-                   tt.icon as type_icon,
-                   u.full_name as user_name,
-                   DATE(t.end_date) - CURRENT_DATE as days_left
-            FROM transactions t
-            JOIN transaction_types tt ON t.transaction_type_id = tt.id
-            JOIN users u ON t.user_id = u.user_id
-            WHERE t.is_active = true AND t.status = %s
-        """
-        
-        params = [status]
-        
-        if search_term:
-            query += " AND (t.title ILIKE %s OR t.description ILIKE %s)"
-            search_pattern = f"%{search_term}%"
-            params.extend([search_pattern, search_pattern])
+        if status:
+            query += " AND t.status = %s"
+            params.append(status)
         
         if transaction_type_id:
             query += " AND t.transaction_type_id = %s"
@@ -441,18 +185,238 @@ class Database:
             query += " AND t.priority = %s"
             params.append(priority)
         
-        if user_id:
-            query += " AND (t.user_id = %s OR %s = ANY(t.reminder_recipients))"
-            params.extend([user_id, user_id])
+        query += " ORDER BY t.end_date ASC, t.created_at DESC"
         
-        query += " ORDER BY t.end_date ASC"
+        if limit:
+            query += f" LIMIT {limit}"
         
-        result = self.execute_query(query, tuple(params))
+        return self.execute_query(query, tuple(params)) or []
+    
+    def get_recent_transactions(self, limit=10):
+        """جلب أحدث المعاملات"""
+        query = """
+            SELECT t.*, tt.name as type_name, tt.icon, u.full_name as user_name
+            FROM transactions t
+            LEFT JOIN transaction_types tt ON t.transaction_type_id = tt.id
+            LEFT JOIN users u ON t.user_id = u.user_id
+            WHERE t.is_active = true
+            ORDER BY t.created_at DESC
+            LIMIT %s
+        """
+        return self.execute_query(query, (limit,)) or []
+    
+    def update_transaction(self, transaction_id, updates):
+        """تحديث معاملة"""
+        # بناء جملة UPDATE ديناميكياً
+        set_clause = ", ".join([f"{key} = %s" for key in updates.keys()])
+        query = f"""
+            UPDATE transactions 
+            SET {set_clause}, updated_at = NOW()
+            WHERE transaction_id = %s
+        """
+        params = list(updates.values()) + [transaction_id]
+        return self.execute_query(query, tuple(params), fetch=False)
+    
+    def delete_transaction(self, transaction_id):
+        """حذف معاملة (soft delete)"""
+        query = """
+            UPDATE transactions 
+            SET is_active = false, updated_at = NOW()
+            WHERE transaction_id = %s
+        """
+        return self.execute_query(query, (transaction_id,), fetch=False)
+    
+    def search_transactions(self, user_id, search_term):
+        """البحث في المعاملات"""
+        query = """
+            SELECT t.*, tt.name as type_name, tt.icon
+            FROM transactions t
+            LEFT JOIN transaction_types tt ON t.transaction_type_id = tt.id
+            WHERE t.user_id = %s 
+            AND t.is_active = true
+            AND (t.title ILIKE %s OR t.description ILIKE %s)
+            ORDER BY t.end_date ASC
+        """
+        search_pattern = f"%{search_term}%"
+        return self.execute_query(query, (user_id, search_pattern, search_pattern)) or []
+    
+    def get_transactions_due_soon(self, user_id, days=7):
+        """جلب المعاملات التي تنتهي قريباً"""
+        query = """
+            SELECT t.*, tt.name as type_name, tt.icon
+            FROM transactions t
+            LEFT JOIN transaction_types tt ON t.transaction_type_id = tt.id
+            WHERE t.user_id = %s 
+            AND t.status = 'active'
+            AND t.is_active = true
+            AND t.end_date <= %s
+            ORDER BY t.end_date ASC
+        """
+        due_date = datetime.now().date() + timedelta(days=days)
+        return self.execute_query(query, (user_id, due_date)) or []
+    
+    # ==================== التنبيهات ====================
+    
+    def create_notifications_for_transaction(self, transaction_id, end_date, recipients):
+        """إنشاء التنبيهات التلقائية لمعاملة"""
+        days_before_list = [30, 15, 7, 3, 0]
         
-        for trans in result:
-            if trans.get('data'):
-                trans['data'] = dict(trans['data'])
-            if trans.get('reminder_recipients'):
-                trans['reminder_recipients'] = list(trans['reminder_recipients'])
+        for days_before in days_before_list:
+            notification_date = end_date - timedelta(days=days_before)
+            
+            # تخطي التنبيهات في الماضي
+            if notification_date < datetime.now().date():
+                continue
+            
+            query = """
+                INSERT INTO notifications (
+                    transaction_id, days_before, recipients, 
+                    notification_type, message, sent, created_at
+                )
+                VALUES (%s, %s, %s, 'scheduled', %s, false, NOW())
+            """
+            
+            # إنشاء رسالة التنبيه
+            if days_before == 0:
+                message = f"⏰ تنتهي المعاملة اليوم!"
+            else:
+                message = f"⚠️ تنبيه: المعاملة ستنتهي بعد {days_before} يوم"
+            
+            self.execute_query(
+                query,
+                (transaction_id, days_before, recipients, message),
+                fetch=False
+            )
+    
+    def get_pending_notifications(self):
+        """جلب التنبيهات المعلقة (التي يجب إرسالها اليوم)"""
+        query = """
+            SELECT n.*, t.title, t.end_date, t.priority, tt.name as type_name
+            FROM notifications n
+            JOIN transactions t ON n.transaction_id = t.transaction_id
+            JOIN transaction_types tt ON t.transaction_type_id = tt.id
+            WHERE n.sent = false
+            AND t.is_active = true
+            AND t.status = 'active'
+            AND (t.end_date - n.days_before) = CURRENT_DATE
+            ORDER BY n.created_at ASC
+        """
+        results = self.execute_query(query) or []
         
-        return result
+        # تحديث رسالة التنبيه بالتفاصيل
+        for notif in results:
+            priority_emoji = {'normal': '🟢', 'high': '🟡', 'critical': '🔴'}
+            days = notif['days_before']
+            
+            if days == 0:
+                time_text = "**اليوم**"
+            else:
+                time_text = f"بعد **{days}** يوم"
+            
+            notif['message'] = f"""
+🔔 **تنبيه معاملة**
+
+📋 **{notif['title']}**
+📂 النوع: {notif['type_name']}
+{priority_emoji.get(notif['priority'], '')} الأولوية: {notif['priority']}
+
+⏰ تنتهي {time_text}
+📅 تاريخ الانتهاء: {notif['end_date']}
+
+🆔 رقم المعاملة: #{notif['transaction_id']}
+            """
+        
+        return results
+    
+    def mark_notification_sent(self, notification_id):
+        """تحديث حالة التنبيه كمُرسَل"""
+        query = """
+            UPDATE notifications 
+            SET sent = true, sent_at = NOW()
+            WHERE notification_id = %s
+        """
+        return self.execute_query(query, (notification_id,), fetch=False)
+    
+    # ==================== الإحصائيات ====================
+    
+    def get_statistics(self):
+        """جلب الإحصائيات العامة"""
+        stats = {}
+        
+        # إجمالي المعاملات
+        query = "SELECT COUNT(*) as count FROM transactions WHERE is_active = true"
+        result = self.execute_query(query)
+        stats['total_transactions'] = result[0]['count'] if result else 0
+        
+        # المعاملات النشطة
+        query = "SELECT COUNT(*) as count FROM transactions WHERE status = 'active' AND is_active = true"
+        result = self.execute_query(query)
+        stats['active_transactions'] = result[0]['count'] if result else 0
+        
+        # عدد المستخدمين
+        query = "SELECT COUNT(*) as count FROM users WHERE is_active = true"
+        result = self.execute_query(query)
+        stats['total_users'] = result[0]['count'] if result else 0
+        
+        # التنبيهات المعلقة
+        query = "SELECT COUNT(*) as count FROM notifications WHERE sent = false"
+        result = self.execute_query(query)
+        stats['pending_notifications'] = result[0]['count'] if result else 0
+        
+        return stats
+    
+    def get_user_statistics(self, user_id):
+        """جلب إحصائيات مستخدم محدد"""
+        stats = {}
+        
+        # إجمالي المعاملات
+        query = "SELECT COUNT(*) as count FROM transactions WHERE user_id = %s AND is_active = true"
+        result = self.execute_query(query, (user_id,))
+        stats['total_transactions'] = result[0]['count'] if result else 0
+        
+        # المعاملات حسب الحالة
+        for status in ['active', 'completed', 'cancelled']:
+            query = """
+                SELECT COUNT(*) as count FROM transactions 
+                WHERE user_id = %s AND status = %s AND is_active = true
+            """
+            result = self.execute_query(query, (user_id, status))
+            stats[f'{status}_transactions'] = result[0]['count'] if result else 0
+        
+        # المعاملات حسب الأولوية
+        for priority in ['normal', 'high', 'critical']:
+            query = """
+                SELECT COUNT(*) as count FROM transactions 
+                WHERE user_id = %s AND priority = %s AND status = 'active' AND is_active = true
+            """
+            result = self.execute_query(query, (user_id, priority))
+            key = 'normal_transactions' if priority == 'normal' else f'{priority}_priority_transactions'
+            stats[key] = result[0]['count'] if result else 0
+        
+        # المعاملات التي تنتهي قريباً (7 أيام)
+        query = """
+            SELECT COUNT(*) as count FROM transactions 
+            WHERE user_id = %s AND status = 'active' 
+            AND is_active = true
+            AND end_date <= %s
+        """
+        due_date = datetime.now().date() + timedelta(days=7)
+        result = self.execute_query(query, (user_id, due_date))
+        stats['due_soon'] = result[0]['count'] if result else 0
+        
+        # التنبيهات المعلقة
+        query = """
+            SELECT COUNT(*) as count FROM notifications n
+            JOIN transactions t ON n.transaction_id = t.transaction_id
+            WHERE t.user_id = %s AND n.sent = false
+        """
+        result = self.execute_query(query, (user_id,))
+        stats['pending_notifications'] = result[0]['count'] if result else 0
+        
+        return stats
+    
+    def close(self):
+        """إغلاق الاتصال بقاعدة البيانات"""
+        if self.conn and not self.conn.closed:
+            self.conn.close()
+            logger.info("تم إغلاق الاتصال بقاعدة البيانات")
