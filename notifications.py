@@ -1,21 +1,17 @@
 """
-🔔 Notification System - نظام التنبيهات الذكي
-إرسال تنبيهات تلقائية للمعاملات القريبة من الانتهاء
+🔔 Notification System - نظام التنبيهات التلقائي
 """
 import os
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from telegram import Bot
 from telegram.error import TelegramError
 import asyncio
 import time
 from database_supabase import Database
 
-# إعداد السجلات
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# ==================== نظام التنبيهات ====================
 
 class NotificationScheduler:
     """جدولة وإرسال التنبيهات التلقائية"""
@@ -33,12 +29,12 @@ class NotificationScheduler:
         if not self.bot_token:
             raise Exception("❌ BOT_TOKEN غير موجود!")
         
-        logger.info("✅ تم تهيئة نظام التنبيهات")
+        logger.info("✅ Notification system initialized")
     
     def start(self):
         """بدء نظام التنبيهات"""
         self.is_running = True
-        logger.info("🔔 نظام التنبيهات يعمل...")
+        logger.info("🔔 Notification system running...")
         
         # إرسال تنبيه فوري عند البداية
         asyncio.run(self.check_and_send_notifications())
@@ -47,30 +43,30 @@ class NotificationScheduler:
         while self.is_running:
             try:
                 asyncio.run(self.check_and_send_notifications())
-                logger.info(f"⏰ الانتظار {self.check_interval} ثانية للفحص التالي...")
+                logger.info(f"⏰ Waiting {self.check_interval} seconds for next check...")
                 time.sleep(self.check_interval)
             except Exception as e:
-                logger.error(f"❌ خطأ في حلقة التنبيهات: {e}")
+                logger.error(f"❌ Error in notification loop: {e}")
                 time.sleep(60)  # انتظار دقيقة ثم إعادة المحاولة
     
     def stop(self):
         """إيقاف نظام التنبيهات"""
         self.is_running = False
-        logger.info("⏹️ تم إيقاف نظام التنبيهات")
+        logger.info("⏹️ Notification system stopped")
     
     async def check_and_send_notifications(self):
         """فحص وإرسال التنبيهات"""
         try:
-            logger.info("🔍 فحص التنبيهات المعلقة...")
+            logger.info("🔍 Checking for pending notifications...")
             
             # جلب التنبيهات المعلقة
             pending_notifications = self.db.get_pending_notifications()
             
             if not pending_notifications:
-                logger.info("✅ لا توجد تنبيهات معلقة")
+                logger.info("✅ No pending notifications")
                 return
             
-            logger.info(f"📨 وجد {len(pending_notifications)} تنبيه معلق")
+            logger.info(f"📨 Found {len(pending_notifications)} pending notification(s)")
             
             # إنشاء bot instance
             bot = Bot(token=self.bot_token)
@@ -94,13 +90,13 @@ class NotificationScheduler:
                         failed_count += 1
                         
                 except Exception as e:
-                    logger.error(f"❌ فشل إرسال التنبيه {notification['notification_id']}: {e}")
+                    logger.error(f"❌ Failed to send notification {notification['notification_id']}: {e}")
                     failed_count += 1
             
-            logger.info(f"✅ تم إرسال {sent_count} تنبيه، فشل {failed_count}")
+            logger.info(f"✅ Sent {sent_count} notification(s), Failed {failed_count}")
             
         except Exception as e:
-            logger.error(f"❌ خطأ في فحص التنبيهات: {e}")
+            logger.error(f"❌ Error checking notifications: {e}")
     
     async def send_notification(self, bot: Bot, notification: dict) -> bool:
         """
@@ -121,7 +117,7 @@ class NotificationScheduler:
             recipients = notification.get('recipients', [])
             
             if not recipients:
-                logger.warning(f"⚠️ التنبيه {notification['notification_id']} ليس له مستلمين")
+                logger.warning(f"⚠️ Notification {notification['notification_id']} has no recipients")
                 return False
             
             success_count = 0
@@ -134,10 +130,10 @@ class NotificationScheduler:
                         parse_mode='HTML'
                     )
                     success_count += 1
-                    logger.info(f"✅ تم إرسال التنبيه إلى {recipient_id}")
+                    logger.info(f"✅ Notification sent to {recipient_id}")
                     
                 except TelegramError as e:
-                    logger.error(f"❌ فشل إرسال التنبيه إلى {recipient_id}: {e}")
+                    logger.error(f"❌ Failed to send to {recipient_id}: {e}")
                 
                 # انتظار قصير بين كل مستلم
                 await asyncio.sleep(0.5)
@@ -145,7 +141,7 @@ class NotificationScheduler:
             return success_count > 0
             
         except Exception as e:
-            logger.error(f"❌ خطأ في إرسال التنبيه: {e}")
+            logger.error(f"❌ Error sending notification: {e}")
             return False
     
     def build_notification_message(self, notification: dict) -> str:
@@ -185,77 +181,29 @@ class NotificationScheduler:
 <b>الحالة:</b> {urgency}
 
 <b>صاحب المعاملة:</b> {trans['user_name']}
+
+━━━━━━━━━━━━━━━━━━━━━
+
+💡 تأكد من متابعة هذه المعاملة
 """
         
         if trans.get('priority') == 'critical':
             message += "\n⚠️ <b>الأولوية: عاجلة جداً!</b>"
         
-        message += "\n━━━━━━━━━━━━━━━━━━━━━"
-        message += "\n\n💡 تأكد من متابعة هذه المعاملة"
-        
         return message
-    
-    def send_immediate_notification(self, transaction_id: int, message: str, 
-                                    recipients: list, sent_by: int):
-        """
-        إرسال تنبيه فوري خارج الجدولة
-        
-        Args:
-            transaction_id: رقم المعاملة
-            message: نص الرسالة
-            recipients: قائمة المستلمين
-            sent_by: من أرسل التنبيه
-        """
-        try:
-            # حفظ في قاعدة البيانات
-            notification_id = self.db.send_immediate_notification(
-                transaction_id=transaction_id,
-                recipients=recipients,
-                message=message,
-                sent_by=sent_by
-            )
-            
-            if not notification_id:
-                logger.error("❌ فشل حفظ التنبيه الفوري")
-                return False
-            
-            # إرسال فوراً
-            async def send_now():
-                bot = Bot(token=self.bot_token)
-                
-                for recipient_id in recipients:
-                    try:
-                        await bot.send_message(
-                            chat_id=recipient_id,
-                            text=message,
-                            parse_mode='HTML'
-                        )
-                        logger.info(f"✅ تم إرسال تنبيه فوري إلى {recipient_id}")
-                    except Exception as e:
-                        logger.error(f"❌ فشل الإرسال الفوري: {e}")
-            
-            asyncio.run(send_now())
-            return True
-            
-        except Exception as e:
-            logger.error(f"❌ خطأ في التنبيه الفوري: {e}")
-            return False
 
 # ==================== Test Function ====================
 
 def test_notifications():
     """اختبار نظام التنبيهات"""
-    logger.info("🧪 اختبار نظام التنبيهات...")
+    logger.info("🧪 Testing notification system...")
     
     try:
         scheduler = NotificationScheduler(check_interval=60)
         asyncio.run(scheduler.check_and_send_notifications())
-        logger.info("✅ اختبار ناجح!")
+        logger.info("✅ Test successful!")
     except Exception as e:
-        logger.error(f"❌ فشل الاختبار: {e}")
-
-# ==================== Run ====================
+        logger.error(f"❌ Test failed: {e}")
 
 if __name__ == '__main__':
-    # للاختبار فقط
     test_notifications()
