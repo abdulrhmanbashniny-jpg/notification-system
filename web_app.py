@@ -172,8 +172,9 @@ def api_transactions():
     return jsonify(db.get_active_transactions())
 
 def run_web():
-    port = int(os.environ.get('PORT', 10000))
+    port = int(os.environ.get('PORT', 10000))  # ✅ يجب أن يكون هكذا
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
 if __name__ == '__main__':
     run_web()
