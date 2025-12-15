@@ -1,5 +1,12 @@
-python-telegram-bot==20.7
-Flask==3.0.0
+# Python Telegram Bot
+python-telegram-bot==21.0.1
+
+# قاعدة البيانات PostgreSQL
 psycopg2-binary==2.9.9
-requests==2.31.0
-python-dotenv==1.0.0
+
+# Flask لموقع الويب
+Flask==3.0.2
+gunicorn==21.2.0
+
+# أدوات إضافية
+python-dotenv==1.0.1
