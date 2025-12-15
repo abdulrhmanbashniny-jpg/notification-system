@@ -2,6 +2,7 @@ services:
   - type: web
     name: notification-system
     env: python
+    runtime: python
     buildCommand: pip install -r requirements.txt
     startCommand: python main.py
     envVars:
@@ -11,4 +12,4 @@ services:
         sync: false
       - key: DATABASE_URL
         sync: false
-    autoDeploy: true
+    healthCheckPath: /health
