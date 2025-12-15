@@ -22,21 +22,90 @@ def index():
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>نظام إدارة المعاملات</title>
     <style>
-        body {{ font-family: Arial; background: linear-gradient(135deg, #667eea, #764ba2); 
-                color: white; padding: 20px; }}
-        .container {{ max-width: 1200px; margin: 0 auto; }}
-        .header {{ text-align: center; margin-bottom: 40px; }}
-        .stats {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); 
-                  gap: 20px; margin-bottom: 40px; }}
-        .stat {{ background: rgba(255,255,255,0.1); padding: 20px; border-radius: 15px; 
-                 text-align: center; }}
-        .stat-number {{ font-size: 3em; font-weight: bold; }}
-        .stat-label {{ font-size: 1.2em; margin-top: 10px; }}
-        .transactions {{ background: rgba(255,255,255,0.1); padding: 20px; border-radius: 15px; }}
-        .transaction {{ background: rgba(255,255,255,0.05); padding: 15px; margin: 10px 0; 
-                        border-radius: 10px; border-right: 5px solid #10b981; }}
-        .transaction.critical {{ border-right-color: #ef4444; }}
-        .transaction.warning {{ border-right-color: #f59e0b; }}
+        body {{ 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea, #764ba2); 
+            color: white; 
+            padding: 20px;
+            margin: 0;
+        }}
+        .container {{ 
+            max-width: 1200px; 
+            margin: 0 auto; 
+        }}
+        .header {{ 
+            text-align: center; 
+            margin-bottom: 40px; 
+        }}
+        .header h1 {{
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }}
+        .stats {{ 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); 
+            gap: 20px; 
+            margin-bottom: 40px; 
+        }}
+        .stat {{ 
+            background: rgba(255,255,255,0.1); 
+            padding: 20px; 
+            border-radius: 15px; 
+            text-align: center;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+        }}
+        .stat-number {{ 
+            font-size: 3em; 
+            font-weight: bold; 
+        }}
+        .stat-label {{ 
+            font-size: 1.2em; 
+            margin-top: 10px; 
+        }}
+        .transactions {{ 
+            background: rgba(255,255,255,0.1); 
+            padding: 20px; 
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+            margin-bottom: 40px;
+        }}
+        .transactions h2 {{
+            margin-top: 0;
+            font-size: 1.8em;
+        }}
+        .transaction {{ 
+            background: rgba(255,255,255,0.05); 
+            padding: 15px; 
+            margin: 10px 0; 
+            border-radius: 10px; 
+            border-right: 5px solid #10b981;
+        }}
+        .transaction.critical {{ 
+            border-right-color: #ef4444; 
+        }}
+        .transaction.warning {{ 
+            border-right-color: #f59e0b; 
+        }}
+        .footer {{
+            text-align: center;
+            padding: 30px 20px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+            margin-top: 40px;
+        }}
+        .footer p {{
+            margin: 10px 0;
+            font-size: 1.1em;
+        }}
+        .footer .developer {{
+            font-weight: bold;
+            font-size: 1.2em;
+            color: #fbbf24;
+        }}
     </style>
 </head>
 <body>
@@ -82,6 +151,11 @@ def index():
 """
     
     html += """
+        </div>
+        
+        <div class="footer">
+            <p>💻 تم تصميم هذا الموقع من قبل المبرمج</p>
+            <p class="developer">عبدالرحمن سالم باشنيني</p>
         </div>
     </div>
 </body>
