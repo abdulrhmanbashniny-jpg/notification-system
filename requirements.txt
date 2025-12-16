@@ -3,3 +3,4 @@ python-dotenv==1.0.1
 psycopg2-binary==2.9.9
 python-telegram-bot==20.8
 gunicorn==21.2.0
+nest-asyncio==1.6.0
