@@ -16,6 +16,36 @@ def get_db_connection():
         print(f"Database error: {e}")
         return None
 
+# إنشاء الجداول
+def init_db():
+    conn = get_db_connection()
+    if not conn:
+        print("❌ Cannot initialize database")
+        return
+    
+    try:
+        cursor = conn.cursor()
+        
+        # جدول المعاملات
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS transactions (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                amount DECIMAL(10, 2) NOT NULL,
+                description TEXT,
+                due_date DATE NOT NULL,
+                status VARCHAR(20) DEFAULT 'active',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        print("✅ Database tables created")
+    except Exception as e:
+        print(f"❌ Error creating tables: {e}")
+
 @app.route('/')
 def home():
     return jsonify({
@@ -57,6 +87,10 @@ def transactions():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
+    # إنشاء الجداول عند بدء التشغيل
+    print("🚀 Starting application...")
+    init_db()
+    
     port = int(os.environ.get('PORT', 10000))
-    print(f"🚀 Starting on port {port}")
+    print(f"✅ Starting on port {port}")
     app.run(host='0.0.0.0', port=port, debug=False)
