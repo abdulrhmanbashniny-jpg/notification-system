@@ -1,15 +1,19 @@
 import os
-import threading
-import asyncio
 from dotenv import load_dotenv
 load_dotenv()
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 import psycopg2
-from telegram import Update
+from telegram import Update, Bot
 from telegram.ext import Application, CommandHandler, ContextTypes
+import asyncio
 
 app = Flask(__name__)
+
+# متغيرات عامة
+BOT_TOKEN = os.getenv('BOT_TOKEN')
+WEBHOOK_URL = os.getenv('WEBHOOK_URL', 'https://notification-system-cm5l.onrender.com')
+bot_app = None
 
 # وظيفة الاتصال بقاعدة البيانات
 def get_db_connection():
@@ -59,18 +63,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🤖 مرحباً بك في بوت إدارة المعاملات!\n\n"
         "الأوامر المتاحة:\n"
         "/start - عرض هذه الرسالة\n"
-        "/add - إضافة معاملة جديدة\n"
         "/list - عرض جميع المعاملات\n"
         "/help - المساعدة"
-    )
-
-async def add_transaction(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """أمر إضافة معاملة"""
-    await update.message.reply_text(
-        "📝 لإضافة معاملة، استخدم الصيغة:\n"
-        "/add [المبلغ] [الوصف] [تاريخ الاستحقاق]\n\n"
-        "مثال:\n"
-        "/add 100 شراء بضاعة 2025-12-31"
     )
 
 async def list_transactions(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -98,7 +92,7 @@ async def list_transactions(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("📋 لا توجد معاملات مسجلة بعد")
             return
         
-        message = "📋 *معاملاتك:*\n\n"
+        message = "📋 معاملاتك:\n\n"
         for row in rows:
             message += f"🆔 #{row[0]}\n"
             message += f"💰 المبلغ: {row[1]} ريال\n"
@@ -107,7 +101,7 @@ async def list_transactions(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message += f"✅ الحالة: {row[4]}\n"
             message += "─────────────\n"
         
-        await update.message.reply_text(message, parse_mode='Markdown')
+        await update.message.reply_text(message)
         
     except Exception as e:
         await update.message.reply_text(f"❌ خطأ: {str(e)}")
@@ -115,53 +109,42 @@ async def list_transactions(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """أمر المساعدة"""
     await update.message.reply_text(
-        "ℹ️ *دليل الاستخدام*\n\n"
+        "ℹ️ دليل الاستخدام\n\n"
         "هذا البوت يساعدك على إدارة معاملاتك المالية\n\n"
-        "*الأوامر المتاحة:*\n"
+        "الأوامر المتاحة:\n"
         "/start - بدء البوت\n"
-        "/add - إضافة معاملة\n"
         "/list - عرض المعاملات\n"
-        "/help - المساعدة\n\n"
-        "للدعم: اتصل بالمطور",
-        parse_mode='Markdown'
+        "/help - المساعدة"
     )
 
 # ═══════════════════════════════════════
-# Bot Runner (Fixed async version)
+# Initialize Bot
 # ═══════════════════════════════════════
 
-def run_bot():
-    """تشغيل البوت بطريقة صحيحة"""
+def init_bot():
+    """إنشاء البوت"""
+    global bot_app
+    
+    if not BOT_TOKEN:
+        print("❌ BOT_TOKEN not found")
+        return None
+    
     try:
-        bot_token = os.getenv('BOT_TOKEN')
-        if not bot_token:
-            print("❌ BOT_TOKEN not found")
-            return
+        print("🤖 Initializing Telegram Bot...")
         
-        print("🤖 Starting Telegram Bot...")
-        
-        # إنشاء event loop جديد للـ Thread
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        # إنشاء البوت
-        application = Application.builder().token(bot_token).build()
+        bot_app = Application.builder().token(BOT_TOKEN).build()
         
         # تسجيل الأوامر
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("add", add_transaction))
-        application.add_handler(CommandHandler("list", list_transactions))
-        application.add_handler(CommandHandler("help", help_command))
+        bot_app.add_handler(CommandHandler("start", start))
+        bot_app.add_handler(CommandHandler("list", list_transactions))
+        bot_app.add_handler(CommandHandler("help", help_command))
         
-        print("✅ Bot commands registered")
-        
-        # تشغيل البوت
-        loop.run_until_complete(application.run_polling(allowed_updates=Update.ALL_TYPES))
+        print("✅ Bot initialized successfully")
+        return bot_app
         
     except Exception as e:
-        print(f"❌ Bot error: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"❌ Bot initialization error: {e}")
+        return None
 
 # ═══════════════════════════════════════
 # Flask Routes
@@ -172,7 +155,7 @@ def home():
     return jsonify({
         "status": "running",
         "message": "Bot is active",
-        "version": "2.1.0"
+        "version": "3.0.0"
     })
 
 @app.route('/health')
@@ -200,8 +183,38 @@ def health():
         "status": "ok",
         "database": db_status,
         "tables_ready": tables_exist,
-        "bot": "running"
+        "bot": "initialized" if bot_app else "not initialized"
     })
+
+@app.route('/webhook', methods=['POST'])
+async def webhook():
+    """استقبال رسائل من Telegram"""
+    if not bot_app:
+        return jsonify({"error": "Bot not initialized"}), 500
+    
+    try:
+        update = Update.de_json(request.get_json(force=True), bot_app.bot)
+        await bot_app.process_update(update)
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        print(f"Webhook error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/set_webhook')
+async def set_webhook():
+    """تفعيل الـ Webhook"""
+    if not bot_app:
+        return jsonify({"error": "Bot not initialized"}), 500
+    
+    try:
+        webhook_url = f"{WEBHOOK_URL}/webhook"
+        await bot_app.bot.set_webhook(webhook_url)
+        return jsonify({
+            "status": "success",
+            "webhook_url": webhook_url
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/transactions')
 def transactions():
@@ -252,10 +265,8 @@ if __name__ == '__main__':
     if init_db():
         print("✅ Database initialized")
     
-    # تشغيل البوت في Thread منفصل
-    bot_thread = threading.Thread(target=run_bot, daemon=True)
-    bot_thread.start()
-    print("✅ Bot thread started")
+    # إنشاء البوت
+    init_bot()
     
     # تشغيل Web Server
     port = int(os.environ.get('PORT', 10000))
