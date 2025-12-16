@@ -1,5 +1,6 @@
 import os
 import threading
+import asyncio
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -126,11 +127,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # ═══════════════════════════════════════
-# Bot Runner
+# Bot Runner (Fixed async version)
 # ═══════════════════════════════════════
 
 def run_bot():
-    """تشغيل البوت"""
+    """تشغيل البوت بطريقة صحيحة"""
     try:
         bot_token = os.getenv('BOT_TOKEN')
         if not bot_token:
@@ -139,6 +140,11 @@ def run_bot():
         
         print("🤖 Starting Telegram Bot...")
         
+        # إنشاء event loop جديد للـ Thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        # إنشاء البوت
         application = Application.builder().token(bot_token).build()
         
         # تسجيل الأوامر
@@ -150,10 +156,12 @@ def run_bot():
         print("✅ Bot commands registered")
         
         # تشغيل البوت
-        application.run_polling(allowed_updates=Update.ALL_TYPES)
+        loop.run_until_complete(application.run_polling(allowed_updates=Update.ALL_TYPES))
         
     except Exception as e:
         print(f"❌ Bot error: {e}")
+        import traceback
+        traceback.print_exc()
 
 # ═══════════════════════════════════════
 # Flask Routes
@@ -164,7 +172,7 @@ def home():
     return jsonify({
         "status": "running",
         "message": "Bot is active",
-        "version": "2.0.0"
+        "version": "2.1.0"
     })
 
 @app.route('/health')
