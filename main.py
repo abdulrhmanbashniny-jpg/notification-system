@@ -7,12 +7,16 @@ import psycopg2
 from telegram import Update, Bot
 from telegram.ext import Application, CommandHandler, ContextTypes
 import asyncio
+import nest_asyncio
+
+# السماح بـ nested event loops
+nest_asyncio.apply()
 
 app = Flask(__name__)
 
 # متغيرات عامة
 BOT_TOKEN = os.getenv('BOT_TOKEN')
-WEBHOOK_URL = os.getenv('WEBHOOK_URL', 'https://notification-system-cm5l.onrender.com')
+WEBHOOK_URL = 'https://notification-system-cm5l.onrender.com'
 bot_app = None
 
 # وظيفة الاتصال بقاعدة البيانات
@@ -64,6 +68,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "الأوامر المتاحة:\n"
         "/start - عرض هذه الرسالة\n"
         "/list - عرض جميع المعاملات\n"
+        "/stats - إحصائيات\n"
         "/help - المساعدة"
     )
 
@@ -96,10 +101,40 @@ async def list_transactions(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for row in rows:
             message += f"🆔 #{row[0]}\n"
             message += f"💰 المبلغ: {row[1]} ريال\n"
-            message += f"📝 الوصف: {row[2]}\n"
-            message += f"📅 الاستحقاق: {row[3]}\n"
-            message += f"✅ الحالة: {row[4]}\n"
-            message += "─────────────\n"
+            message += f"📝 {row[2]}\n"
+            message += f"📅 {row[3]}\n"
+            message += f"✅ {row[4]}\n\n"
+        
+        await update.message.reply_text(message)
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ خطأ: {str(e)}")
+
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """إحصائيات"""
+    conn = get_db_connection()
+    if not conn:
+        await update.message.reply_text("❌ خطأ في الاتصال")
+        return
+    
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT COUNT(*), COALESCE(SUM(amount), 0) 
+            FROM transactions 
+            WHERE user_id = %s AND status = 'active'
+        """, (update.effective_user.id,))
+        
+        result = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        
+        count = result[0]
+        total = float(result[1])
+        
+        message = f"📊 إحصائياتك:\n\n"
+        message += f"📝 عدد المعاملات: {count}\n"
+        message += f"💰 المجموع: {total:.2f} ريال"
         
         await update.message.reply_text(message)
         
@@ -110,10 +145,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """أمر المساعدة"""
     await update.message.reply_text(
         "ℹ️ دليل الاستخدام\n\n"
-        "هذا البوت يساعدك على إدارة معاملاتك المالية\n\n"
         "الأوامر المتاحة:\n"
         "/start - بدء البوت\n"
         "/list - عرض المعاملات\n"
+        "/stats - الإحصائيات\n"
         "/help - المساعدة"
     )
 
@@ -137,9 +172,20 @@ def init_bot():
         # تسجيل الأوامر
         bot_app.add_handler(CommandHandler("start", start))
         bot_app.add_handler(CommandHandler("list", list_transactions))
+        bot_app.add_handler(CommandHandler("stats", stats))
         bot_app.add_handler(CommandHandler("help", help_command))
         
-        print("✅ Bot initialized successfully")
+        print("✅ Bot initialized")
+        
+        # تفعيل الـ Webhook تلقائياً
+        try:
+            loop = asyncio.get_event_loop()
+            webhook_url = f"{WEBHOOK_URL}/webhook"
+            loop.run_until_complete(bot_app.bot.set_webhook(webhook_url))
+            print(f"✅ Webhook set to: {webhook_url}")
+        except Exception as e:
+            print(f"⚠️ Webhook setup warning: {e}")
+        
         return bot_app
         
     except Exception as e:
@@ -155,7 +201,7 @@ def home():
     return jsonify({
         "status": "running",
         "message": "Bot is active",
-        "version": "3.0.0"
+        "version": "3.1.0"
     })
 
 @app.route('/health')
@@ -183,37 +229,27 @@ def health():
         "status": "ok",
         "database": db_status,
         "tables_ready": tables_exist,
-        "bot": "initialized" if bot_app else "not initialized"
+        "bot": "ready" if bot_app else "not ready"
     })
 
 @app.route('/webhook', methods=['POST'])
-async def webhook():
+def webhook():
     """استقبال رسائل من Telegram"""
     if not bot_app:
         return jsonify({"error": "Bot not initialized"}), 500
     
     try:
         update = Update.de_json(request.get_json(force=True), bot_app.bot)
-        await bot_app.process_update(update)
+        
+        # معالجة الرسالة في event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(bot_app.process_update(update))
+        loop.close()
+        
         return jsonify({"status": "ok"})
     except Exception as e:
         print(f"Webhook error: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/set_webhook')
-async def set_webhook():
-    """تفعيل الـ Webhook"""
-    if not bot_app:
-        return jsonify({"error": "Bot not initialized"}), 500
-    
-    try:
-        webhook_url = f"{WEBHOOK_URL}/webhook"
-        await bot_app.bot.set_webhook(webhook_url)
-        return jsonify({
-            "status": "success",
-            "webhook_url": webhook_url
-        })
-    except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 @app.route('/transactions')
@@ -265,7 +301,7 @@ if __name__ == '__main__':
     if init_db():
         print("✅ Database initialized")
     
-    # إنشاء البوت
+    # إنشاء البوت وتفعيل Webhook
     init_bot()
     
     # تشغيل Web Server
